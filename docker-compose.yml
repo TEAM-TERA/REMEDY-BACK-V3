@@ -1,0 +1,42 @@
+services:
+  # 개발용 PostgreSQL + PostGIS (PostGIS, pg_trgm 확장 포함 이미지)
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: remedy-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-remedy}
+    ports:
+      - '5432:5432'
+    volumes:
+      - remedy_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # E2E 테스트 전용 인스턴스 (격리, 휘발성 — 볼륨 없음)
+  db-test:
+    image: postgis/postgis:16-3.4
+    container_name: remedy-db-test
+    restart: 'no'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: remedy_test
+    ports:
+      - '5433:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  remedy_db_data:
+    driver: local
