@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DroppingType, Prisma, Song } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationService } from '../notification/notification.service';
 import { DroppingCreateRequest } from './dto/dropping-create.request';
 import {
   DroppingResponse,
@@ -47,7 +48,10 @@ export class DroppingService {
   /** 1m 중복 방지 반경(m). 원본 0.001km = 1m */
   private static readonly DROPPING_CONSTRAINT_DISTANCE_METERS = 1;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   // ── 생성 ────────────────────────────────────────────────────
 
@@ -74,8 +78,26 @@ export class DroppingService {
     request: DroppingCreateRequest,
   ): Promise<void> {
     const payload: MusicPayload = { songId: request.songId! };
-    await this.insertDropping(userId, request, DroppingType.MUSIC, payload);
-    // TODO: 원본 DroppingCreatedEvent(GlobalEventPublisher) 알림 발행은 이번 범위 외 → 생략
+    const droppingId = await this.insertDropping(
+      userId,
+      request,
+      DroppingType.MUSIC,
+      payload,
+    );
+
+    // 원본 DroppingCreatedEvent: 드롭 생성자 본인에게 알림 발행(best-effort)
+    try {
+      await this.notificationService.notifyDropping({
+        recipientId: userId,
+        droppingId,
+        songId: payload.songId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `드롭 생성 알림 발행 실패 - droppingId=${droppingId}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 
   /** VOTE 생성 (원본 VoteDroppingService.createVoteDropping + Mapper.toVoteDroppingPayload) */
@@ -131,10 +153,10 @@ export class DroppingService {
     request: DroppingCreateRequest,
     type: DroppingType,
     payload: MusicPayload | VotePayload | PlaylistPayload,
-  ): Promise<void> {
+  ): Promise<string> {
     const expiryDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
 
-    await this.prisma.$transaction(
+    return this.prisma.$transaction(
       async (tx) => {
         const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
           SELECT id
@@ -152,7 +174,7 @@ export class DroppingService {
           throw new DroppingAlreadyExistsException();
         }
 
-        await tx.dropping.create({
+        const created = await tx.dropping.create({
           data: {
             droppingType: type,
             payload: payload as unknown as Prisma.InputJsonValue,
@@ -163,7 +185,9 @@ export class DroppingService {
             address: request.address,
             expiryDate,
           },
+          select: { id: true },
         });
+        return created.id;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );

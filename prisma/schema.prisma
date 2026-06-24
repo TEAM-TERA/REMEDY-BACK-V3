@@ -35,6 +35,12 @@ enum DroppingType {
   PLAYLIST
 }
 
+enum NotificationType {
+  LIKE
+  COMMENT
+  DROPPING
+}
+
 // ─────────────────────────────────────────────────────────────
 // User (원본: PostgreSQL/JPA User)
 // ─────────────────────────────────────────────────────────────
@@ -57,6 +63,9 @@ model User {
   comments  Comment[]
   likes     Like[]
   droppings Dropping[]
+
+  receivedNotifications Notification[] @relation("ReceivedNotifications")
+  sentNotifications     Notification[] @relation("SentNotifications")
 
   @@index([provider, providerId])
   @@map("users")
@@ -134,9 +143,10 @@ model Dropping {
   isDeleted    Boolean                                @default(false) @map("is_deleted")
   location     Unsupported("geography(Point, 4326)")?
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  comments Comment[]
-  likes    Like[]
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comments      Comment[]
+  likes         Like[]
+  notifications Notification[]
 
   @@index([userId])
   @@index([isDeleted, expiryDate])
@@ -155,4 +165,32 @@ model Playlist {
 
   @@index([userId])
   @@map("playlists")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Notification (원본: 저장 없는 전송형 SSE → 영속화 + 이력/안읽음으로 재설계)
+//   하이브리드: 공통 컬럼은 관계형, 표시용 스냅샷 세부는 JSONB(payload)
+//   payload 예)
+//     LIKE     : { "actorUsername": "..." }
+//     COMMENT  : { "actorUsername": "...", "commentContent": "..." }
+//     DROPPING : { "songId": "..." }
+//   actor 삭제 시에도 알림 이력은 유지(actorId → null), recipient/dropping 삭제 시 정리(cascade)
+// ─────────────────────────────────────────────────────────────
+model Notification {
+  id          String           @id @default(uuid())
+  type        NotificationType
+  recipientId Int              @map("recipient_id")
+  actorId     Int?             @map("actor_id")
+  droppingId  String?          @map("dropping_id")
+  payload     Json             @db.JsonB
+  isRead      Boolean          @default(false) @map("is_read")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  recipient User      @relation("ReceivedNotifications", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor     User?     @relation("SentNotifications", fields: [actorId], references: [id], onDelete: SetNull)
+  dropping  Dropping? @relation(fields: [droppingId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, createdAt])
+  @@index([recipientId, isRead])
+  @@map("notifications")
 }
