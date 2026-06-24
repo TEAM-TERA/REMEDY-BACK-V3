@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { Comment } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationService } from '../notification/notification.service';
 import {
   CommentUpdateRequest,
   CreateCommentRequest,
@@ -14,19 +15,25 @@ import {
 
 @Injectable()
 export class CommentService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(CommentService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   /**
    * 댓글 작성 (원본 createComment).
    * 드랍핑 존재를 먼저 검증한 뒤 댓글을 저장한다.
-   * 원본은 작성 후 CommentCreatedEvent 를 SSE 로 발행하나,
-   * 본 프로젝트엔 GlobalEventPublisher/SSE 인프라가 아직 없으므로 이벤트 발행은 생략한다(아래 보고 참고).
+   * 저장 후 드롭 소유자에게 알림을 발행한다(원본 CommentCreatedEvent).
+   * 자기 자신 드롭 댓글은 NotificationService 에서 제외하며, 알림 실패가 댓글 작성을
+   * 실패시키지 않도록 best-effort 로 처리한다.
    */
   async createComment(
     userId: number,
     request: CreateCommentRequest,
   ): Promise<void> {
-    await this.findDroppingOrThrow(request.droppingId);
+    const dropping = await this.findDroppingOrThrow(request.droppingId);
 
     await this.prisma.comment.create({
       data: {
@@ -35,6 +42,20 @@ export class CommentService {
         droppingId: request.droppingId,
       },
     });
+
+    try {
+      await this.notificationService.notifyComment({
+        recipientId: dropping.userId,
+        actorId: userId,
+        droppingId: request.droppingId,
+        commentContent: request.content,
+      });
+    } catch (error) {
+      this.logger.error(
+        `댓글 알림 발행 실패 - droppingId=${request.droppingId}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 
   /**
@@ -119,11 +140,21 @@ export class CommentService {
     }
   }
 
-  /** 드랍핑 존재 검증 후 없으면 예외 (원본 droppingRepository.findById/existsById) */
-  private async findDroppingOrThrow(droppingId: string): Promise<void> {
-    if (!(await this.droppingExists(droppingId))) {
+  /**
+   * 드랍핑 조회 후 없으면 예외 (원본 droppingRepository.findById/existsById).
+   * 알림 수신자(소유자) 식별을 위해 userId 를 함께 반환한다.
+   */
+  private async findDroppingOrThrow(
+    droppingId: string,
+  ): Promise<{ id: string; userId: number }> {
+    const dropping = await this.prisma.dropping.findUnique({
+      where: { id: droppingId },
+      select: { id: true, userId: true },
+    });
+    if (!dropping) {
       throw new DroppingNotFoundException();
     }
+    return dropping;
   }
 
   /** 드랍핑 존재 여부 */

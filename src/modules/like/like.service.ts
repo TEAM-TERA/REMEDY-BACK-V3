@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationService } from '../notification/notification.service';
 import {
   LikeCountResponse,
   LikeDroppingListResponse,
@@ -10,24 +11,30 @@ import { DroppingNotFoundException } from './exceptions/like.exceptions';
 
 @Injectable()
 export class LikeService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(LikeService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   /**
    * 좋아요 토글 (원본 LikeService.toggleLike).
    * dropping 존재 검증 → (userId, droppingId) 로 기존 좋아요 조회 →
    * 있으면 삭제(false), 없으면 생성(true). @@unique([userId,droppingId]) 활용.
    *
-   * TODO(통합): 원본은 좋아요 생성 시 dropping 소유자에게 SSE 알림(LikeCreatedEvent)을
-   * 발행한다(자기 자신 드롭 제외). SSE/이벤트 인프라 이식 시 여기에 추가한다.
+   * 좋아요가 새로 생성되면 dropping 소유자에게 알림을 발행한다(원본 LikeCreatedEvent).
+   * 자기 자신 드롭 좋아요는 NotificationService 에서 제외한다. 알림 실패가 좋아요 자체를
+   * 실패시키지 않도록 트랜잭션 커밋 이후 best-effort 로 처리한다.
    */
   async toggleLike(
     userId: number,
     droppingId: string,
   ): Promise<LikeToggleResponse> {
-    return this.prisma.$transaction(async (tx) => {
+    const { liked, ownerId } = await this.prisma.$transaction(async (tx) => {
       const dropping = await tx.dropping.findUnique({
         where: { id: droppingId },
-        select: { id: true },
+        select: { id: true, userId: true },
       });
       if (!dropping) {
         throw new DroppingNotFoundException();
@@ -39,23 +46,40 @@ export class LikeService {
 
       if (existing) {
         await tx.like.delete({ where: { id: existing.id } });
-        return { liked: false };
+        return { liked: false, ownerId: dropping.userId };
       }
 
       try {
         await tx.like.create({ data: { userId, droppingId } });
-        return { liked: true };
+        return { liked: true, ownerId: dropping.userId };
       } catch (error) {
         // 동시 더블탭으로 이미 생성된 경우 → 멱등하게 성공 처리(500 방지)
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
           error.code === 'P2002'
         ) {
-          return { liked: true };
+          return { liked: true, ownerId: dropping.userId };
         }
         throw error;
       }
     });
+
+    if (liked) {
+      try {
+        await this.notificationService.notifyLike({
+          recipientId: ownerId,
+          actorId: userId,
+          droppingId,
+        });
+      } catch (error) {
+        this.logger.error(
+          `좋아요 알림 발행 실패 - droppingId=${droppingId}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
+    }
+
+    return { liked };
   }
 
   /** 내가 누른 좋아요 수 (원본 getLikeCountByUser) */
