@@ -22,6 +22,10 @@ import {
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { DroppingService } from '../dropping/dropping.service';
+import { DroppingSearchListResponse } from '../dropping/dto/dropping-response.dto';
+import { LikeService } from '../like/like.service';
+import { LikeDroppingListResponse } from '../like/dto/like-response.dto';
 import {
   UserProfileImageResponseDto,
   UserProfileResponseDto,
@@ -34,7 +38,11 @@ import { UserService } from './user.service';
 @UseGuards(JwtAuthGuard)
 @Controller('users')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly droppingService: DroppingService,
+    private readonly likeService: LikeService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: '내 프로필 조회' })
@@ -71,5 +79,23 @@ export class UserController {
   @ApiOperation({ summary: '회원 탈퇴' })
   withdraw(@CurrentUser() user: AuthUser): Promise<void> {
     return this.userService.withdraw(user);
+  }
+
+  @Get('my-drop')
+  @ApiOperation({ summary: '내가 드랍한 목록 조회' })
+  @ApiOkResponse({ type: DroppingSearchListResponse })
+  getMyDroppings(
+    @CurrentUser() user: AuthUser,
+  ): Promise<DroppingSearchListResponse> {
+    return this.droppingService.getUserDroppings(user.id);
+  }
+
+  @Get('my-like')
+  @ApiOperation({ summary: '내가 좋아요한 드랍 목록 조회' })
+  @ApiOkResponse({ type: LikeDroppingListResponse })
+  getLikedDroppings(
+    @CurrentUser() user: AuthUser,
+  ): Promise<LikeDroppingListResponse> {
+    return this.likeService.getLikeDroppingsDetailByUser(user.id);
   }
 }
