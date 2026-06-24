@@ -31,6 +31,6 @@ export async function createTestApp(): Promise<INestApplication> {
 /** 모든 테이블 데이터 초기화 (FK 안전하게 TRUNCATE ... CASCADE) */
 export async function truncateAll(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "likes","comments","droppings","playlists","songs","users" RESTART IDENTITY CASCADE;',
+    'TRUNCATE TABLE "notifications","likes","comments","droppings","playlists","songs","users" RESTART IDENTITY CASCADE;',
   );
 }
