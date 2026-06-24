@@ -10,6 +10,7 @@ import { OAuth2Module } from './modules/oauth2/oauth2.module';
 import { DroppingModule } from './modules/dropping/dropping.module';
 import { LikeModule } from './modules/like/like.module';
 import { CommentModule } from './modules/comment/comment.module';
+import { NotificationModule } from './modules/notification/notification.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
 
@@ -28,6 +29,7 @@ import { StorageModule } from './infrastructure/storage/storage.module';
     DroppingModule,
     LikeModule,
     CommentModule,
+    NotificationModule,
   ],
 })
 export class AppModule {}
