@@ -7,6 +7,9 @@ import { HealthModule } from './modules/health/health.module';
 import { SongModule } from './modules/song/song.module';
 import { PlaylistModule } from './modules/playlist/playlist.module';
 import { OAuth2Module } from './modules/oauth2/oauth2.module';
+import { DroppingModule } from './modules/dropping/dropping.module';
+import { LikeModule } from './modules/like/like.module';
+import { CommentModule } from './modules/comment/comment.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
 
@@ -22,6 +25,9 @@ import { StorageModule } from './infrastructure/storage/storage.module';
     SongModule,
     PlaylistModule,
     OAuth2Module,
+    DroppingModule,
+    LikeModule,
+    CommentModule,
   ],
 })
 export class AppModule {}
