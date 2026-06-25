@@ -12,6 +12,7 @@ import {
   SongSearchResponse,
 } from './dto/song-search.dto';
 import { SongNotFoundException } from '../../common/exceptions/not-found.exception';
+import { orThrow } from '../../common/utils/guard';
 
 /** 검색어 결과 캐시 TTL(인기 검색어의 Spotify 반복 호출 절감) */
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -75,10 +76,10 @@ export class SongService {
    * 여기서는 부수효과(외부 fetch/쓰기) 없이 캐시만 조회한다(없으면 SONG_NOT_FOUND).
    */
   async getSongById(id: string): Promise<SongResponse> {
-    const song = await this.prisma.song.findUnique({ where: { id } });
-    if (!song) {
-      throw new SongNotFoundException();
-    }
+    const song = orThrow(
+      await this.prisma.song.findUnique({ where: { id } }),
+      () => new SongNotFoundException(),
+    );
     return this.toSongResponse(song);
   }
 
@@ -88,6 +89,28 @@ export class SongService {
       orderBy: { title: 'asc' },
     });
     return { songResponses: songs.map((song) => this.toSongResponse(song)) };
+  }
+
+  /**
+   * songId 목록을 한 번의 findMany 로 조회해 Map 으로 반환한다(읽기 전용).
+   * 참조된 곡 중 하나라도 캐시에 없으면 SongNotFoundException.
+   * (ensureSongs 와 달리 외부 fetch/upsert 부수효과가 없다 — 드랍/플레이리스트 읽기 경로용.)
+   */
+  async loadSongMap(songIds: string[]): Promise<Map<string, Song>> {
+    const uniqueIds = [...new Set(songIds)];
+    if (uniqueIds.length === 0) {
+      return new Map();
+    }
+    const songs = await this.prisma.song.findMany({
+      where: { id: { in: uniqueIds } },
+    });
+    const map = new Map(songs.map((song) => [song.id, song]));
+    for (const id of uniqueIds) {
+      if (!map.has(id)) {
+        throw new SongNotFoundException();
+      }
+    }
+    return map;
   }
 
   // ── 캐시 보장(ensure) ─────────────────────────────────────────

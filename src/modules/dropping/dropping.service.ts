@@ -34,6 +34,7 @@ import {
   SongNotFoundException,
   UserNotFoundException,
 } from '../../common/exceptions/not-found.exception';
+import { orThrow, assertOwnership } from '../../common/utils/guard';
 
 /**
  * dropping 도메인 서비스 (원본 DroppingServiceFacade + DroppingService +
@@ -320,7 +321,7 @@ export class DroppingService {
     for (const row of rows) {
       representativeSongIds.push(this.representativeSongId(row));
     }
-    const songMap = await this.loadSongMap(representativeSongIds);
+    const songMap = await this.songService.loadSongMap(representativeSongIds);
 
     // 2) 동기 변환
     return rows.map((row) => {
@@ -485,7 +486,9 @@ export class DroppingService {
     userId: number,
   ): Promise<VoteDroppingResponse> {
     const payload = this.parseVotePayload(dropping.payload);
-    const songMap = await this.loadSongMap(Object.keys(payload.optionVotes));
+    const songMap = await this.songService.loadSongMap(
+      Object.keys(payload.optionVotes),
+    );
 
     const options: VoteOptionInfo[] = [];
     let totalVotes = 0;
@@ -529,7 +532,7 @@ export class DroppingService {
     dropping: DroppingRecord,
   ): Promise<PlaylistDroppingResponse> {
     const payload = this.parsePlaylistPayload(dropping.payload);
-    const songMap = await this.loadSongMap(payload.songIds);
+    const songMap = await this.songService.loadSongMap(payload.songIds);
 
     const songs: PlaylistSongInfo[] = payload.songIds.map((songId) => {
       const song = songMap.get(songId)!;
@@ -561,9 +564,11 @@ export class DroppingService {
   /** soft delete (원본 DroppingService.deleteDropping, 소유자 검증) */
   async deleteDropping(droppingId: string, userId: number): Promise<void> {
     const dropping = await this.findDroppingOrThrow(droppingId);
-    if (dropping.userId !== userId) {
-      throw new InvalidDroppingDeleteRequestException();
-    }
+    assertOwnership(
+      dropping.userId,
+      userId,
+      () => new InvalidDroppingDeleteRequestException(),
+    );
     await this.prisma.dropping.update({
       where: { id: droppingId },
       data: { isDeleted: true },
@@ -670,43 +675,18 @@ export class DroppingService {
   private async findDroppingOrThrow(
     droppingId: string,
   ): Promise<DroppingRecord> {
-    const dropping = await this.prisma.dropping.findUnique({
-      where: { id: droppingId },
-    });
-    if (!dropping) {
-      throw new DroppingNotFoundException();
-    }
-    return dropping;
-  }
-
-  /**
-   * songId 목록을 한 번의 findMany 로 조회해 Map 으로 반환한다.
-   * 참조된 곡 중 하나라도 없으면 SongNotFoundException (원본 동작과 동일).
-   */
-  private async loadSongMap(songIds: string[]): Promise<Map<string, Song>> {
-    const uniqueIds = [...new Set(songIds)];
-    if (uniqueIds.length === 0) {
-      return new Map();
-    }
-    const songs = await this.prisma.song.findMany({
-      where: { id: { in: uniqueIds } },
-    });
-    const map = new Map(songs.map((song) => [song.id, song]));
-    for (const id of uniqueIds) {
-      if (!map.has(id)) {
-        throw new SongNotFoundException();
-      }
-    }
-    return map;
+    return orThrow(
+      await this.prisma.dropping.findUnique({ where: { id: droppingId } }),
+      () => new DroppingNotFoundException(),
+    );
   }
 
   /** 곡 단건 조회 후 없으면 예외 */
   private async findSongOrThrow(songId: string): Promise<Song> {
-    const song = await this.prisma.song.findUnique({ where: { id: songId } });
-    if (!song) {
-      throw new SongNotFoundException();
-    }
-    return song;
+    return orThrow(
+      await this.prisma.song.findUnique({ where: { id: songId } }),
+      () => new SongNotFoundException(),
+    );
   }
 
   // ── payload 런타임 가드 (JSONB → 타입, 불일치 시 InvalidDroppingType) ──

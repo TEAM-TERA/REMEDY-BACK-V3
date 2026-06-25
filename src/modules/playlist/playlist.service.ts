@@ -21,10 +21,15 @@ import {
   PlaylistNotFoundException,
   SongNotFoundException,
 } from '../../common/exceptions/not-found.exception';
+import { orThrow, assertOwnership } from '../../common/utils/guard';
+import { SongService } from '../song/song.service';
 
 @Injectable()
 export class PlaylistService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly songService: SongService,
+  ) {}
 
   /** 플레이리스트 생성 (원본 createPlaylist) */
   async createPlaylist(
@@ -147,20 +152,19 @@ export class PlaylistService {
 
   /** 플레이리스트 조회 후 없으면 예외 */
   private async findPlaylistOrThrow(playlistId: string): Promise<Playlist> {
-    const playlist = await this.prisma.playlist.findUnique({
-      where: { id: playlistId },
-    });
-    if (!playlist) {
-      throw new PlaylistNotFoundException();
-    }
-    return playlist;
+    return orThrow(
+      await this.prisma.playlist.findUnique({ where: { id: playlistId } }),
+      () => new PlaylistNotFoundException(),
+    );
   }
 
   /** 소유자 검증 (원본 validatePlaylistOwner) */
   private validatePlaylistOwner(playlist: Playlist, userId: number): void {
-    if (playlist.userId !== userId) {
-      throw new UnauthorizedPlaylistAccessException();
-    }
+    assertOwnership(
+      playlist.userId,
+      userId,
+      () => new UnauthorizedPlaylistAccessException(),
+    );
   }
 
   /**
@@ -170,20 +174,9 @@ export class PlaylistService {
   private async resolveSongs(
     songIds: string[],
   ): Promise<PlaylistSongResponse[]> {
-    if (songIds.length === 0) return [];
-
-    const songs = await this.prisma.song.findMany({
-      where: { id: { in: songIds } },
-    });
-    const songMap = new Map(songs.map((song) => [song.id, song]));
-
-    return songIds.map((songId) => {
-      const song = songMap.get(songId);
-      if (!song) {
-        throw new SongNotFoundException();
-      }
-      return this.toSongResponse(song);
-    });
+    // 누락 시 loadSongMap 이 이미 SongNotFoundException 을 던지므로 get 은 non-null.
+    const songMap = await this.songService.loadSongMap(songIds);
+    return songIds.map((id) => this.toSongResponse(songMap.get(id)!));
   }
 
   /**
