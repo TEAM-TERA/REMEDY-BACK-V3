@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Song } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TtlCache } from '../../common/utils/ttl-cache';
 import { SpotifyMusicClient } from '../music-source/clients/spotify-music.client';
 import { YouTubeMusicResolver } from '../music-source/clients/youtube-music.resolver';
 import { MusicTrack } from '../music-source/music-track';
@@ -11,6 +12,10 @@ import {
   SongSearchResponseDto,
 } from './dto/song-search.dto';
 import { SongNotFoundException } from './exceptions/song.exceptions';
+
+/** 검색어 결과 캐시 TTL(인기 검색어의 Spotify 반복 호출 절감) */
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+const SEARCH_CACHE_MAX_ENTRIES = 500;
 
 /** YouTube 매칭 resolve 결과 (checked=false 면 '확인 불가'로 미확정) */
 interface YouTubeResolution {
@@ -32,18 +37,37 @@ interface YouTubeResolution {
 export class SongService {
   private readonly logger = new Logger(SongService.name);
 
+  /** 검색어 → 결과 캐시(동일 검색어의 Spotify 반복 호출·공유 레이트리밋 압박 감소) */
+  private readonly searchCache = new TtlCache<SongSearchResponseDto[]>(
+    SEARCH_CACHE_TTL_MS,
+    SEARCH_CACHE_MAX_ENTRIES,
+  );
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly spotify: SpotifyMusicClient,
     private readonly youtube: YouTubeMusicResolver,
   ) {}
 
-  /** 통합 검색 — Spotify 프록시. 결과는 캐시하지 않는다(드랍 시점에 ensureSongs 가 캐시). */
+  /**
+   * 통합 검색 — Spotify 프록시 + 검색어 캐시(TTL).
+   * 동일 검색어는 캐시로 응답해 Spotify 호출을 줄인다(곡 메타는 드랍 시 별도 영구 캐시).
+   */
   async searchSongs(query: string): Promise<SongSearchListResponseDto> {
+    const key = query.trim().toLowerCase();
+    if (key.length === 0) {
+      return { songSearchResponses: [] };
+    }
+
+    const cached = this.searchCache.get(key);
+    if (cached) {
+      return { songSearchResponses: cached };
+    }
+
     const tracks = await this.spotify.search(query);
-    return {
-      songSearchResponses: tracks.map((t) => this.toSearchResponse(t)),
-    };
+    const responses = tracks.map((t) => this.toSearchResponse(t));
+    this.searchCache.set(key, responses);
+    return { songSearchResponses: responses };
   }
 
   /**

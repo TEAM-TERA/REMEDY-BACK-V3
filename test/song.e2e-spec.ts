@@ -126,6 +126,23 @@ describe('Song E2E (songs)', () => {
     await request(app.getHttpServer()).get(api('/songs/search')).expect(400);
   });
 
+  it('동일 검색어는 캐시로 응답 → Spotify 중복 호출 없음', async () => {
+    spotifyMock.search.mockClear();
+
+    const first = await request(app.getHttpServer())
+      .get(api('/songs/search'))
+      .query({ query: 'BTS' })
+      .expect(200);
+    const second = await request(app.getHttpServer())
+      .get(api('/songs/search'))
+      .query({ query: 'BTS' })
+      .expect(200);
+
+    expect(second.body).toEqual(first.body);
+    // 두 번 요청했지만 Spotify 검색은 1회만(캐시 hit)
+    expect(spotifyMock.search).toHaveBeenCalledTimes(1);
+  });
+
   it('GET /songs/:id (캐시, YT 매칭 있음) → playLinks 양쪽 available', async () => {
     const res = await request(app.getHttpServer())
       .get(api('/songs/cached-yt-ok'))

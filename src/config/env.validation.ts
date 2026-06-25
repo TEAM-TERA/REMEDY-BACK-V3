@@ -88,6 +88,15 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   YOUTUBE_API_KEY?: string;
+
+  // 검색 레이트 리밋(IP 기준). 기본 30회 / 60초.
+  @IsOptional()
+  @IsInt()
+  SEARCH_RATE_LIMIT?: number;
+
+  @IsOptional()
+  @IsInt()
+  SEARCH_RATE_TTL_MS?: number;
 }
 
 export function validateEnv(
