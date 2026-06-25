@@ -20,7 +20,11 @@ import { NaverOAuth2ClientImpl } from './clients/naver-oauth2.client';
  *   E2E 에서 .overrideProvider(GoogleOAuth2Client) 로 가짜 구현 주입 가능.
  */
 @Module({
-  imports: [AuthModule, HttpModule],
+  // provider userinfo 호출에 타임아웃(3s)·리다이렉트 차단(SSRF 보조 방어) 적용
+  imports: [
+    AuthModule,
+    HttpModule.register({ timeout: 3000, maxRedirects: 0 }),
+  ],
   controllers: [OAuth2Controller],
   providers: [
     OAuth2Service,
