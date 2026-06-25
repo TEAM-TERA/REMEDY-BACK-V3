@@ -109,15 +109,27 @@ model Like {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Song (원본: Elasticsearch nori → Postgres + pg_trgm)
-//   title/artist 트라이그램 GIN 인덱스는 마이그레이션 SQL에서 생성
+// Song (외부 음원 소스 캐시)
+//   곡 식별·검색 소스 = Spotify → id 는 Spotify track id(자연키, default 없음).
+//   드랍 생성 시 Spotify 에서 메타를 fetch 해 upsert(캐시)하고, 그 시점에
+//   YouTube Music 매칭을 1회 resolve 해 youtubeVideoId/youtubeChecked 에 캐시한다.
+//   재생 링크는 곡당 plat별로 계산: Spotify 는 id 로, YouTube 는 videoId 로.
+//   title/artist 트라이그램 GIN 인덱스(마이그레이션 SQL)는 로컬 캐시 조회 보조용으로 유지.
 // ─────────────────────────────────────────────────────────────
 model Song {
-  id             String @id @default(uuid())
+  id             String  @id // Spotify track id (검색·식별 소스, 자연 dedupe)
   title          String
   artist         String
+  album          String? // Spotify album.name (있으면)
   duration       Int // 재생 시간(초)
-  albumImagePath String @map("album_image_path")
+  albumImagePath String  @map("album_image_path")
+
+  // YouTube Music 매칭 캐시 (곡당 1회 resolve)
+  //   youtubeChecked=false           → 아직 확인 안 함
+  //   youtubeChecked=true, videoId=null → 확인했고 매칭 없음(YT 미지원)
+  //   videoId!=null                  → 매칭 있음(정확 트랙 링크 제공)
+  youtubeVideoId String?  @map("youtube_video_id")
+  youtubeChecked Boolean  @default(false) @map("youtube_checked")
 
   @@map("songs")
 }

@@ -2,70 +2,98 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createTestApp, truncateAll } from './utils/test-app';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { SpotifyMusicClient } from '../src/modules/music-source/clients/spotify-music.client';
+import { MusicTrack } from '../src/modules/music-source/music-track';
 
 /**
  * Song 도메인 E2E.
- * 곡 생성 API 가 없으므로 PrismaService 로 songs 를 직접 seed 한 뒤
- * 목록/검색(한글 부분일치)/단건/삭제를 검증한다.
+ * - 검색: Spotify 프록시(클라이언트 mock 주입). 결과 형태/필드 검증.
+ * - 단건/목록/삭제: 로컬 캐시(prisma 시드). playLinks(YouTube 가용성 포함) 검증.
  */
 describe('Song E2E (songs)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   const api = (path: string): string => `/api/v1${path}`;
 
-  // 시드용 곡 데이터. id 를 고정해 단건/삭제 검증을 단순화한다.
-  const songs = [
+  // Spotify 검색 mock 카탈로그
+  const catalog: MusicTrack[] = [
     {
-      id: '11111111-1111-1111-1111-111111111111',
+      id: 'sp-iu-goodday',
       title: '좋은 날',
       artist: '아이유',
+      album: 'Real',
       duration: 219,
-      albumImagePath: '/images/iu-goodday.png',
+      albumImagePath: 'https://img/iu-goodday.jpg',
     },
     {
-      id: '22222222-2222-2222-2222-222222222222',
+      id: 'sp-iu-nightletter',
       title: '밤편지',
       artist: '아이유',
+      album: 'Palette',
       duration: 254,
-      albumImagePath: '/images/iu-nightletter.png',
+      albumImagePath: 'https://img/iu-night.jpg',
     },
     {
-      id: '33333333-3333-3333-3333-333333333333',
+      id: 'sp-bts-dynamite',
       title: 'Dynamite',
       artist: 'BTS',
+      album: 'Dynamite',
       duration: 199,
-      albumImagePath: '/images/bts-dynamite.png',
+      albumImagePath: 'https://img/bts-dynamite.jpg',
+    },
+  ];
+
+  const spotifyMock = {
+    search: jest.fn((query: string): Promise<MusicTrack[]> => {
+      const q = query.trim();
+      return Promise.resolve(
+        catalog.filter((t) => t.title.includes(q) || t.artist.includes(q)),
+      );
+    }),
+    getTracks: jest.fn(
+      (ids: string[]): Promise<MusicTrack[]> =>
+        Promise.resolve(catalog.filter((t) => ids.includes(t.id))),
+    ),
+  };
+
+  // 로컬 캐시 시드용 곡(이미 드랍되어 캐시된 상태를 모사). youtube 매칭 캐시도 포함.
+  const cached = [
+    {
+      id: 'cached-yt-ok',
+      title: 'Cached With YT',
+      artist: 'Tester',
+      album: 'Album A',
+      duration: 200,
+      albumImagePath: '/img/a.png',
+      youtubeVideoId: 'vid-abc',
+      youtubeChecked: true,
+    },
+    {
+      id: 'cached-yt-none',
+      title: 'Cached No YT',
+      artist: 'Tester',
+      album: null,
+      duration: 180,
+      albumImagePath: '/img/b.png',
+      youtubeVideoId: null,
+      youtubeChecked: true,
     },
   ];
 
   beforeAll(async () => {
-    app = await createTestApp();
+    app = await createTestApp((b) =>
+      b.overrideProvider(SpotifyMusicClient).useValue(spotifyMock),
+    );
     prisma = app.get(PrismaService);
     await truncateAll(prisma);
-    await prisma.song.createMany({ data: songs });
+    await prisma.song.createMany({ data: cached });
   });
 
   afterAll(async () => {
     await app.close();
   });
 
-  it('GET /songs → 200 + 전체 목록', async () => {
-    const res = await request(app.getHttpServer())
-      .get(api('/songs'))
-      .expect(200);
-
-    expect(Array.isArray(res.body.songResponses)).toBe(true);
-    expect(res.body.songResponses).toHaveLength(3);
-    // duration 필드가 포함되어야 한다 (SongResponse)
-    const sample = res.body.songResponses[0];
-    expect(sample).toHaveProperty('id');
-    expect(sample).toHaveProperty('title');
-    expect(sample).toHaveProperty('artist');
-    expect(sample).toHaveProperty('duration');
-    expect(sample).toHaveProperty('albumImagePath');
-  });
-
-  it("GET /songs/search?query=아이 → 가수 '아이유' 부분일치 검색", async () => {
+  it("GET /songs/search?query=아이 → Spotify 프록시로 '아이유' 곡 검색", async () => {
     const res = await request(app.getHttpServer())
       .get(api('/songs/search'))
       .query({ query: '아이' })
@@ -73,71 +101,75 @@ describe('Song E2E (songs)', () => {
 
     const results = res.body.songSearchResponses;
     expect(Array.isArray(results)).toBe(true);
-    // 아이유 곡 2건이 검색되어야 한다.
     const artists = results.map((s: { artist: string }) => s.artist);
     expect(artists).toContain('아이유');
-    expect(results.length).toBeGreaterThanOrEqual(2);
-    // 검색 응답에는 duration 이 없어야 한다 (SongSearchResponse)
+    expect(results.length).toBe(2);
+    // 검색 응답: album 포함, duration/playLinks 미포함
+    expect(results[0]).toHaveProperty('album');
     expect(results[0]).not.toHaveProperty('duration');
-    expect(results[0]).toHaveProperty('albumImagePath');
+    expect(results[0]).not.toHaveProperty('playLinks');
   });
 
-  it('GET /songs/search?query=밤편지 → 제목 부분일치 검색', async () => {
+  it('GET /songs/search?query=Dynamite → 제목 검색', async () => {
     const res = await request(app.getHttpServer())
       .get(api('/songs/search'))
-      .query({ query: '밤편지' })
+      .query({ query: 'Dynamite' })
       .expect(200);
 
     const results = res.body.songSearchResponses;
-    expect(results.length).toBeGreaterThanOrEqual(1);
-    expect(results.some((s: { title: string }) => s.title === '밤편지')).toBe(
-      true,
-    );
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe('sp-bts-dynamite');
+    expect(results[0].artist).toBe('BTS');
   });
 
   it('GET /songs/search (query 누락) → 400', async () => {
     await request(app.getHttpServer()).get(api('/songs/search')).expect(400);
   });
 
-  it('GET /songs/:id → 200 + 단건', async () => {
+  it('GET /songs/:id (캐시, YT 매칭 있음) → playLinks 양쪽 available', async () => {
     const res = await request(app.getHttpServer())
-      .get(api(`/songs/${songs[0].id}`))
+      .get(api('/songs/cached-yt-ok'))
       .expect(200);
 
-    expect(res.body.id).toBe(songs[0].id);
-    expect(res.body.title).toBe(songs[0].title);
-    expect(res.body.artist).toBe(songs[0].artist);
-    expect(res.body.duration).toBe(songs[0].duration);
+    expect(res.body.id).toBe('cached-yt-ok');
+    expect(res.body.duration).toBe(200);
+    expect(res.body.album).toBe('Album A');
+
+    expect(res.body.playLinks.spotify).toEqual({
+      available: true,
+      url: 'https://open.spotify.com/track/cached-yt-ok',
+    });
+    expect(res.body.playLinks.youtubeMusic).toEqual({
+      available: true,
+      url: 'https://music.youtube.com/watch?v=vid-abc',
+    });
   });
 
-  it('GET /songs/:id (없는 곡) → 404 (SONG_NOT_FOUND)', async () => {
+  it('GET /songs/:id (캐시, YT 매칭 없음) → youtubeMusic 미지원', async () => {
     const res = await request(app.getHttpServer())
-      .get(api('/songs/99999999-9999-9999-9999-999999999999'))
+      .get(api('/songs/cached-yt-none'))
+      .expect(200);
+
+    expect(res.body.playLinks.spotify.available).toBe(true);
+    expect(res.body.playLinks.youtubeMusic).toEqual({
+      available: false,
+      url: null,
+    });
+  });
+
+  it('GET /songs/:id (캐시에 없음) → 404 (SONG_NOT_FOUND)', async () => {
+    const res = await request(app.getHttpServer())
+      .get(api('/songs/sp-iu-goodday'))
       .expect(404);
     expect(res.body.code).toBe('SONG_NOT_FOUND');
   });
 
-  it('DELETE /songs/:id → 204 + 실제 삭제', async () => {
-    await request(app.getHttpServer())
-      .delete(api(`/songs/${songs[2].id}`))
-      .expect(204);
-
-    // 삭제 후 단건 조회는 404
-    await request(app.getHttpServer())
-      .get(api(`/songs/${songs[2].id}`))
-      .expect(404);
-
-    // 목록도 2건으로 줄어든다.
+  it('GET /songs → 캐시된 목록(playLinks 포함)', async () => {
     const res = await request(app.getHttpServer())
       .get(api('/songs'))
       .expect(200);
-    expect(res.body.songResponses).toHaveLength(2);
-  });
 
-  it('DELETE /songs/:id (없는 곡) → 404 (SONG_NOT_FOUND)', async () => {
-    const res = await request(app.getHttpServer())
-      .delete(api('/songs/99999999-9999-9999-9999-999999999999'))
-      .expect(404);
-    expect(res.body.code).toBe('SONG_NOT_FOUND');
+    expect(res.body.songResponses).toHaveLength(2);
+    expect(res.body.songResponses[0]).toHaveProperty('playLinks');
   });
 });

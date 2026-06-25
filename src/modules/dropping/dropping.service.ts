@@ -3,6 +3,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { DroppingType, Prisma, Song } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { SongService } from '../song/song.service';
+import { buildPlayLinks } from '../music-source/play-links';
 import { DroppingCreateRequest } from './dto/dropping-create.request';
 import {
   DroppingResponse,
@@ -54,6 +56,7 @@ export class DroppingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly songService: SongService,
   ) {}
 
   /**
@@ -109,6 +112,9 @@ export class DroppingService {
     userId: number,
     request: DroppingCreateRequest,
   ): Promise<void> {
+    // 곡을 Spotify 에서 fetch+캐시(없으면 SONG_NOT_FOUND) — YouTube 매칭도 이때 1회 resolve
+    await this.songService.ensureSongs([request.songId!]);
+
     const payload: MusicPayload = { songId: request.songId! };
     const droppingId = await this.insertDropping(
       userId,
@@ -137,8 +143,8 @@ export class DroppingService {
     userId: number,
     request: DroppingCreateRequest,
   ): Promise<void> {
-    // 모든 옵션 곡이 실제 존재해야 상세/검색 응답이 깨지지 않는다(없으면 SongNotFound)
-    await this.loadSongMap(request.options!);
+    // 모든 옵션 곡을 Spotify 에서 fetch+캐시(없으면 SongNotFound). 상세/검색 응답 무결성 보장.
+    await this.songService.ensureSongs(request.options!);
 
     const optionVotes: Record<string, number[]> = {};
     for (const songId of request.options!) {
@@ -173,8 +179,8 @@ export class DroppingService {
       };
     }
 
-    // 플레이리스트의 모든 곡이 실제 존재해야 상세/검색 응답이 깨지지 않는다
-    await this.loadSongMap(payload.songIds);
+    // 플레이리스트의 모든 곡을 Spotify 에서 fetch+캐시(없으면 SongNotFound)
+    await this.songService.ensureSongs(payload.songIds);
 
     await this.insertDropping(userId, request, DroppingType.PLAYLIST, payload);
   }
@@ -467,6 +473,7 @@ export class DroppingService {
       expiryDate: dropping.expiryDate,
       createdAt: dropping.createdAt,
       albumImageUrl: song.albumImagePath,
+      playLinks: buildPlayLinks(song),
     };
   }
 
@@ -492,6 +499,7 @@ export class DroppingService {
         title: song.title,
         artist: song.artist,
         voteCount,
+        playLinks: buildPlayLinks(song),
       });
       if (voters.includes(userId)) {
         userVotedOption = songId;
@@ -528,6 +536,7 @@ export class DroppingService {
         title: song.title,
         artist: song.artist,
         albumImagePath: song.albumImagePath,
+        playLinks: buildPlayLinks(song),
       };
     });
 

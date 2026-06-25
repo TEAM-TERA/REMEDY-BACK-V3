@@ -73,6 +73,21 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   NAVER_CLIENT_SECRET?: string;
+
+  // ── 외부 음원 소스 ──
+  // Spotify(검색·식별, Client Credentials). 미설정 시 검색/곡 fetch 호출에서 502.
+  @IsOptional()
+  @IsString()
+  SPOTIFY_CLIENT_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  SPOTIFY_CLIENT_SECRET?: string;
+
+  // YouTube Data API(곡당 1회 매칭). 미설정 시 YouTube 가용성은 '미확인/미지원' 처리.
+  @IsOptional()
+  @IsString()
+  YOUTUBE_API_KEY?: string;
 }
 
 export function validateEnv(

@@ -1,6 +1,10 @@
-import { Injectable } from '@nestjs/common';
-import { Prisma, Song } from '@prisma/client';
+import { Injectable, Logger } from '@nestjs/common';
+import { Song } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SpotifyMusicClient } from '../music-source/clients/spotify-music.client';
+import { YouTubeMusicResolver } from '../music-source/clients/youtube-music.resolver';
+import { MusicTrack } from '../music-source/music-track';
+import { buildPlayLinks } from '../music-source/play-links';
 import { SongListResponseDto, SongResponseDto } from './dto/song-response.dto';
 import {
   SongSearchListResponseDto,
@@ -8,19 +12,44 @@ import {
 } from './dto/song-search.dto';
 import { SongNotFoundException } from './exceptions/song.exceptions';
 
+/** YouTube 매칭 resolve 결과 (checked=false 면 '확인 불가'로 미확정) */
+interface YouTubeResolution {
+  videoId: string | null;
+  checked: boolean;
+}
+
 /**
- * 곡 도메인 서비스 (원본 SongService 이식)
+ * 곡 도메인 서비스.
  *
- * 원본은 Elasticsearch(nori 형태소 분석기) 기반 통합 검색을 사용했으나,
- * 여기서는 Postgres + pg_trgm(트라이그램) 으로 대체한다.
- * - 부분 일치: ILIKE '%query%'
- * - 정렬: similarity() 유사도 내림차순
+ * 외부 음원 소스 연동 모델:
+ * - 검색·식별 마스터 = Spotify. 검색은 Spotify Web API 프록시.
+ * - 로컬 `songs` 테이블은 '참조된 곡 캐시'. 드랍/플레이리스트에서 참조되는 순간
+ *   ensureSongs 로 Spotify 메타를 fetch+upsert 하고, 그 시점에 YouTube Music 매칭을
+ *   1회 resolve 해 캐시한다(곡당 1회, 쿼터 절약).
+ * - 재생 링크는 곡당 plat별로 계산(buildPlayLinks): Spotify 항상 가능, YouTube 는 매칭 시.
  */
 @Injectable()
 export class SongService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(SongService.name);
 
-  /** ID로 곡 단건 조회 (원본 getSongById) */
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly spotify: SpotifyMusicClient,
+    private readonly youtube: YouTubeMusicResolver,
+  ) {}
+
+  /** 통합 검색 — Spotify 프록시. 결과는 캐시하지 않는다(드랍 시점에 ensureSongs 가 캐시). */
+  async searchSongs(query: string): Promise<SongSearchListResponseDto> {
+    const tracks = await this.spotify.search(query);
+    return {
+      songSearchResponses: tracks.map((t) => this.toSearchResponse(t)),
+    };
+  }
+
+  /**
+   * 단건 조회(로컬 캐시). 곡은 드랍 생성 시 ensureSongs 로 캐시되므로,
+   * 여기서는 부수효과(외부 fetch/쓰기) 없이 캐시만 조회한다(없으면 SONG_NOT_FOUND).
+   */
   async getSongById(id: string): Promise<SongResponseDto> {
     const song = await this.prisma.song.findUnique({ where: { id } });
     if (!song) {
@@ -29,86 +58,123 @@ export class SongService {
     return this.toSongResponse(song);
   }
 
-  /** 전체 곡 목록 조회 (원본 getAllSongs) — 결정적 정렬(title) */
+  /** 캐시된 전체 곡 목록 (결정적 정렬: title) */
   async getAllSongs(): Promise<SongListResponseDto> {
     const songs = await this.prisma.song.findMany({
       orderBy: { title: 'asc' },
     });
-    return {
-      songResponses: songs.map((song) => this.toSongResponse(song)),
-    };
+    return { songResponses: songs.map((song) => this.toSongResponse(song)) };
+  }
+
+  // ── 캐시 보장(ensure) ─────────────────────────────────────────
+
+  /**
+   * songId 목록의 곡이 로컬 캐시에 존재하도록 보장하고 Map 으로 반환한다.
+   * - 캐시에 있으면 그대로 사용(외부 호출 없음).
+   * - 없으면 Spotify 에서 일괄 fetch → 각 곡 YouTube 매칭 resolve(best-effort) → upsert.
+   * - Spotify 에도 없는 id 가 하나라도 있으면 SONG_NOT_FOUND.
+   */
+  async ensureSongs(ids: string[]): Promise<Map<string, Song>> {
+    const uniqueIds = [...new Set(ids.filter((id) => id.length > 0))];
+    if (uniqueIds.length === 0) {
+      return new Map();
+    }
+
+    const existing = await this.prisma.song.findMany({
+      where: { id: { in: uniqueIds } },
+    });
+    const map = new Map(existing.map((song) => [song.id, song]));
+
+    const missing = uniqueIds.filter((id) => !map.has(id));
+    if (missing.length === 0) {
+      return map;
+    }
+
+    const tracks = await this.spotify.getTracks(missing);
+    const trackMap = new Map(tracks.map((t) => [t.id, t]));
+    // 요청한 곡 중 Spotify 에서 못 찾은 게 있으면 잘못된 songId
+    for (const id of missing) {
+      if (!trackMap.has(id)) {
+        throw new SongNotFoundException();
+      }
+    }
+
+    // 곡별 YT resolve + upsert 를 병렬로(VOTE/PLAYLIST 다곡 시 순차 외부호출 N+1 제거)
+    const created = await Promise.all(
+      missing.map(async (id) => {
+        const track = trackMap.get(id)!;
+        const yt = await this.resolveYouTube(track);
+        return this.upsertSong(track, yt);
+      }),
+    );
+    for (const song of created) {
+      map.set(song.id, song);
+    }
+
+    return map;
+  }
+
+  /** YouTube 매칭 resolve (best-effort: 실패 시 '미확인'으로 둠) */
+  private async resolveYouTube(track: MusicTrack): Promise<YouTubeResolution> {
+    try {
+      const match = await this.youtube.resolve({
+        title: track.title,
+        artist: track.artist,
+      });
+      return { videoId: match?.videoId ?? null, checked: true };
+    } catch {
+      // 키 미설정/쿼터/네트워크 → 확인 불가. 곡 생성은 막지 않고 미확인 상태로 캐시.
+      this.logger.warn(`YouTube 매칭 확인 불가 → 미확인 처리: ${track.title}`);
+      return { videoId: null, checked: false };
+    }
   }
 
   /**
-   * 제목+가수 통합 검색 (원본 searchSongs)
-   *
-   * title 또는 artist 가 검색어를 부분 포함(ILIKE '%query%')하는 곡을 찾고,
-   * title/artist 의 트라이그램 유사도(greatest) 내림차순으로 정렬한다.
-   * pg_trgm GIN 인덱스가 ILIKE 부분 일치를 가속한다.
-   *
-   * SQL 인젝션 방지를 위해 $queryRaw 의 파라미터 바인딩($1)을 사용한다.
+   * Spotify track + YT 매칭을 songs 캐시에 upsert(동시 생성 race 대비).
+   * 충돌(이미 존재) 시 update 는 메타데이터만 갱신하고 YT 캐시(youtubeVideoId/Checked)는
+   * 건드리지 않는다 — 동시 ensure 에서 한쪽 resolve 실패가 이미 확정된 매칭을 퇴행시키지 않도록.
    */
-  async searchSongs(query: string): Promise<SongSearchListResponseDto> {
-    const trimmed = query.trim();
-    // 빈 검색어는 빈 결과 반환 (원본 fallback 동작과 동등)
-    if (trimmed.length === 0) {
-      return { songSearchResponses: [] };
-    }
-
-    const pattern = `%${trimmed}%`;
-
-    // 파라미터 바인딩으로 안전하게 쿼리 구성.
-    // similarity(title, query) 와 similarity(artist, query) 중 큰 값으로 정렬.
-    const songs = await this.prisma.$queryRaw<Song[]>(Prisma.sql`
-      SELECT id, title, artist, duration, album_image_path AS "albumImagePath"
-      FROM songs
-      WHERE title ILIKE ${pattern} OR artist ILIKE ${pattern}
-      ORDER BY GREATEST(
-                 similarity(title, ${trimmed}),
-                 similarity(artist, ${trimmed})
-               ) DESC,
-               title ASC
-      LIMIT 20
-    `);
-
-    return {
-      songSearchResponses: songs.map((song) => this.toSongSearchResponse(song)),
+  private upsertSong(track: MusicTrack, yt: YouTubeResolution): Promise<Song> {
+    const metadata = {
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      duration: track.duration,
+      albumImagePath: track.albumImagePath,
     };
+    return this.prisma.song.upsert({
+      where: { id: track.id },
+      create: {
+        id: track.id,
+        ...metadata,
+        youtubeVideoId: yt.videoId,
+        youtubeChecked: yt.checked,
+      },
+      update: metadata,
+    });
   }
 
-  /** 곡 삭제 (원본 deleteSong) — 존재하지 않으면 예외. 단일 delete + P2025 변환으로 원자적 처리 */
-  async deleteSong(id: string): Promise<void> {
-    try {
-      await this.prisma.song.delete({ where: { id } });
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2025'
-      ) {
-        throw new SongNotFoundException();
-      }
-      throw error;
-    }
-  }
+  // ── 매핑 ──────────────────────────────────────────────────────
 
-  /** Song 엔티티 → SongResponseDto 매핑 (원본 SongMapper.toSongResponse) */
   private toSongResponse(song: Song): SongResponseDto {
     return {
       id: song.id,
       title: song.title,
       artist: song.artist,
+      album: song.album,
       duration: song.duration,
       albumImagePath: song.albumImagePath,
+      playLinks: buildPlayLinks(song),
     };
   }
 
-  /** Song 엔티티 → SongSearchResponseDto 매핑 (원본 SongMapper.toSongSearchResponse) */
-  private toSongSearchResponse(song: Song): SongSearchResponseDto {
+  private toSearchResponse(track: MusicTrack): SongSearchResponseDto {
     return {
-      id: song.id,
-      title: song.title,
-      artist: song.artist,
-      albumImagePath: song.albumImagePath,
+      id: track.id,
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      albumImagePath: track.albumImagePath,
     };
   }
 }

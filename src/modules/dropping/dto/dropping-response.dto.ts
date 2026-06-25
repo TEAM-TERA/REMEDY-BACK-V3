@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { DroppingType } from '@prisma/client';
+import { PlayLinksDto } from '../../music-source/play-links';
 
 /**
  * 거리기반 검색 결과 항목의 공통 인터페이스 (원본 DroppingResponse 인터페이스 이식).
@@ -69,7 +70,7 @@ export class DroppingSearchListResponse {
 
 // ── 단건 상세 응답 ────────────────────────────────────────────
 
-/** 원본 MusicDroppingResponse 이식 */
+/** 원본 MusicDroppingResponse 이식 (+ 플랫폼별 재생 링크) */
 export class MusicDroppingResponse {
   @ApiProperty() droppingId!: string;
   @ApiProperty() songId!: string;
@@ -79,15 +80,17 @@ export class MusicDroppingResponse {
   @ApiProperty() expiryDate!: Date;
   @ApiProperty() createdAt!: Date;
   @ApiProperty() albumImageUrl!: string;
+  @ApiProperty({ type: PlayLinksDto }) playLinks!: PlayLinksDto;
 }
 
-/** 원본 VoteOptionInfo 이식 */
+/** 원본 VoteOptionInfo 이식 (+ 플랫폼별 재생 링크) */
 export class VoteOptionInfo {
   @ApiProperty() songId!: string;
   @ApiProperty() albumImagePath!: string;
   @ApiProperty() title!: string;
   @ApiProperty() artist!: string;
   @ApiProperty() voteCount!: number;
+  @ApiProperty({ type: PlayLinksDto }) playLinks!: PlayLinksDto;
 }
 
 /** 원본 VoteDroppingResponse 이식 */
@@ -106,12 +109,13 @@ export class VoteDroppingResponse {
   @ApiProperty({ nullable: true }) userVotedOption!: string | null;
 }
 
-/** 원본 PlaylistDroppingResponse.SongInfo 이식 */
+/** 원본 PlaylistDroppingResponse.SongInfo 이식 (+ 플랫폼별 재생 링크) */
 export class PlaylistSongInfo {
   @ApiProperty() songId!: string;
   @ApiProperty() title!: string;
   @ApiProperty() artist!: string;
   @ApiProperty() albumImagePath!: string;
+  @ApiProperty({ type: PlayLinksDto }) playLinks!: PlayLinksDto;
 }
 
 /** 원본 PlaylistDroppingResponse 이식 */

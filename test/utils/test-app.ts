@@ -1,16 +1,18 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/http-exception.filter';
 import { PrismaService } from '../../src/prisma/prisma.service';
 
 /**
  * main.ts 와 동일한 전역 설정(prefix, ValidationPipe, 예외필터)으로 테스트 앱을 부팅한다.
+ * customize 콜백으로 provider override(예: 외부 음원 소스 mock 주입)를 적용할 수 있다.
  */
-export async function createTestApp(): Promise<INestApplication> {
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule],
-  }).compile();
+export async function createTestApp(
+  customize?: (builder: TestingModuleBuilder) => TestingModuleBuilder,
+): Promise<INestApplication> {
+  const builder = Test.createTestingModule({ imports: [AppModule] });
+  const moduleRef = await (customize ? customize(builder) : builder).compile();
 
   const app = moduleRef.createNestApplication();
   app.setGlobalPrefix('api/v1');

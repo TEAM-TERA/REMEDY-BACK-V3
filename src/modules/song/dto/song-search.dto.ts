@@ -13,11 +13,12 @@ export class SongSearchQueryDto {
 }
 
 /**
- * 검색 결과 단건 응답 (원본 SongSearchResponse 이식)
- * 필드: id, title, artist, albumImagePath (duration 제외)
+ * 검색 결과 단건 응답 (Spotify 검색 결과).
+ * 필드: id(Spotify track id), title, artist, album, albumImagePath (duration 제외).
+ * 재생 링크/YouTube 가용성은 드랍 생성(ensureSongs) 시점에 확정되므로 검색 결과엔 싣지 않는다.
  */
 export class SongSearchResponseDto {
-  @ApiProperty({ description: '곡 ID(uuid)' })
+  @ApiProperty({ description: '곡 ID (Spotify track id)' })
   id!: string;
 
   @ApiProperty({ description: '곡 제목' })
@@ -25,6 +26,9 @@ export class SongSearchResponseDto {
 
   @ApiProperty({ description: '아티스트' })
   artist!: string;
+
+  @ApiProperty({ description: '앨범명', nullable: true })
+  album!: string | null;
 
   @ApiProperty({ description: '앨범 이미지 경로' })
   albumImagePath!: string;
