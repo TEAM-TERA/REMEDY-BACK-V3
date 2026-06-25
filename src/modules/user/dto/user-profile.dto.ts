@@ -3,7 +3,7 @@ import { Type } from 'class-transformer';
 import { IsBoolean, IsDate, IsOptional, MaxLength } from 'class-validator';
 
 /** 원본 UserProfileResponse 이식 */
-export class UserProfileResponseDto {
+export class UserProfileResponse {
   @ApiProperty()
   username!: string;
 
@@ -37,7 +37,7 @@ export class UserProfileUpdateDto {
 }
 
 /** 원본 UserProfileImageResponse 이식 */
-export class UserProfileImageResponseDto {
+export class UserProfileImageResponse {
   @ApiProperty()
   profileImageUrl!: string;
 }

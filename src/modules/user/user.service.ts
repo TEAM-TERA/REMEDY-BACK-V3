@@ -4,8 +4,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { S3Service } from '../../infrastructure/storage/s3.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import {
-  UserProfileImageResponseDto,
-  UserProfileResponseDto,
+  UserProfileImageResponse,
+  UserProfileResponse,
   UserProfileUpdateDto,
 } from './dto/user-profile.dto';
 
@@ -17,7 +17,7 @@ export class UserService {
   ) {}
 
   /** 내 프로필 조회 (원본 getMyProfile) */
-  getMyProfile(user: AuthUser): UserProfileResponseDto {
+  getMyProfile(user: AuthUser): UserProfileResponse {
     return {
       username: user.username,
       profileImageUrl: user.profileImage,
@@ -45,7 +45,7 @@ export class UserService {
   async updateProfileImage(
     image: Express.Multer.File,
     user: AuthUser,
-  ): Promise<UserProfileImageResponseDto> {
+  ): Promise<UserProfileImageResponse> {
     const imageUrl = await this.s3.uploadImage(image, 'profile');
     await this.prisma.user.update({
       where: { id: user.id },

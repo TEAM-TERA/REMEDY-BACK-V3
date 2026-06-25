@@ -223,12 +223,12 @@ describe('Playlist E2E', () => {
     expect(res.body.playlists).toHaveLength(0);
   });
 
-  it('PUT /playlists/:id → 200 (이름 수정)', async () => {
+  it('PUT /playlists/:id → 204 (이름 수정)', async () => {
     await request(app.getHttpServer())
       .put(api(`/playlists/${playlistId}`))
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ name: '수정된 이름' })
-      .expect(200);
+      .expect(204);
 
     const updated = await prisma.playlist.findUnique({
       where: { id: playlistId },

@@ -30,8 +30,8 @@ import { DroppingSearchListResponse } from '../dropping/dto/dropping-response.dt
 import { LikeService } from '../like/like.service';
 import { LikeDroppingListResponse } from '../like/dto/like-response.dto';
 import {
-  UserProfileImageResponseDto,
-  UserProfileResponseDto,
+  UserProfileImageResponse,
+  UserProfileResponse,
   UserProfileUpdateDto,
 } from './dto/user-profile.dto';
 import { UserService } from './user.service';
@@ -49,13 +49,13 @@ export class UserController {
 
   @Get()
   @ApiOperation({ summary: '내 프로필 조회' })
-  @ApiOkResponse({ type: UserProfileResponseDto })
-  getMyProfile(@CurrentUser() user: AuthUser): UserProfileResponseDto {
+  @ApiOkResponse({ type: UserProfileResponse })
+  getMyProfile(@CurrentUser() user: AuthUser): UserProfileResponse {
     return this.userService.getMyProfile(user);
   }
 
   @Patch()
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '프로필 수정' })
   updateProfile(
     @Body() dto: UserProfileUpdateDto,
@@ -68,7 +68,7 @@ export class UserController {
   @HttpCode(HttpStatus.OK)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: '프로필 이미지 업로드' })
-  @ApiOkResponse({ type: UserProfileImageResponseDto })
+  @ApiOkResponse({ type: UserProfileImageResponse })
   @UseInterceptors(FileInterceptor('image'))
   updateProfileImage(
     @UploadedFile(
@@ -82,12 +82,12 @@ export class UserController {
     )
     image: Express.Multer.File,
     @CurrentUser() user: AuthUser,
-  ): Promise<UserProfileImageResponseDto> {
+  ): Promise<UserProfileImageResponse> {
     return this.userService.updateProfileImage(image, user);
   }
 
   @Post('withdrawal')
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '회원 탈퇴' })
   withdraw(@CurrentUser() user: AuthUser): Promise<void> {
     return this.userService.withdraw(user);

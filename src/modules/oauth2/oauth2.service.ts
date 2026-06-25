@@ -9,7 +9,7 @@ import {
   NaverOAuth2Client,
 } from './clients/oauth2-client';
 import { OAuth2UserInfo } from './domain/oauth2-user-info';
-import { OAuth2LoginResponseDto } from './dto/oauth2-login-response.dto';
+import { OAuth2LoginResponse } from './dto/oauth2-login-response.dto';
 import {
   OAuth2EmailConflictException,
   OAuth2InvalidUserInfoException,
@@ -33,19 +33,19 @@ export class OAuth2Service {
   ) {}
 
   /** 원본 OAuth2AuthFacade.googleLogin 이식 */
-  async googleLogin(accessToken: string): Promise<OAuth2LoginResponseDto> {
+  async googleLogin(accessToken: string): Promise<OAuth2LoginResponse> {
     const userInfo = await this.googleClient.getUserInfo(accessToken);
     return this.processOAuth2Login(userInfo);
   }
 
   /** 원본 OAuth2AuthFacade.kakaoLogin 이식 */
-  async kakaoLogin(accessToken: string): Promise<OAuth2LoginResponseDto> {
+  async kakaoLogin(accessToken: string): Promise<OAuth2LoginResponse> {
     const userInfo = await this.kakaoClient.getUserInfo(accessToken);
     return this.processOAuth2Login(userInfo);
   }
 
   /** 원본 OAuth2AuthFacade.naverLogin 이식 */
-  async naverLogin(accessToken: string): Promise<OAuth2LoginResponseDto> {
+  async naverLogin(accessToken: string): Promise<OAuth2LoginResponse> {
     const userInfo = await this.naverClient.getUserInfo(accessToken);
     return this.processOAuth2Login(userInfo);
   }
@@ -56,7 +56,7 @@ export class OAuth2Service {
    */
   private async processOAuth2Login(
     userInfo: OAuth2UserInfo,
-  ): Promise<OAuth2LoginResponseDto> {
+  ): Promise<OAuth2LoginResponse> {
     if (!userInfo.providerId) {
       // provider 응답에서 고유 식별자를 얻지 못함
       throw new OAuth2InvalidUserInfoException();

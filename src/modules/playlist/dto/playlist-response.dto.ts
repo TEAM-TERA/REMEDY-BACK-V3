@@ -1,10 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
- * 곡 응답 — 원본 song 도메인 SongResponse 이식.
+ * 곡 응답 — 원본 song 도메인 PlaylistSongResponse 이식.
  * song 모듈을 import 하지 않고 playlist 상세 응답 내부에서 직접 사용한다.
  */
-export class SongResponse {
+export class PlaylistSongResponse {
   @ApiProperty()
   id!: string;
 
@@ -29,8 +29,8 @@ export class PlaylistDetailResponse {
   @ApiProperty()
   name!: string;
 
-  @ApiProperty({ type: [SongResponse] })
-  songs!: SongResponse[];
+  @ApiProperty({ type: [PlaylistSongResponse] })
+  songs!: PlaylistSongResponse[];
 }
 
 /** 원본 PlaylistResponse 이식 — 목록 항목(대표 앨범 이미지 포함) */

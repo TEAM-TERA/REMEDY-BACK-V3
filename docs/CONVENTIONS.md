@@ -28,10 +28,10 @@ src/modules/<domain>/
 
 ## 2. 의존성 주입(DI)
 
-| 대상 | 규칙 | 예시 |
-|---|---|---|
-| **외부 소스 클라이언트** | **추상 클래스를 DI 토큰**으로 두고 `useClass`로 구현 바인딩 | `SpotifyMusicClient` ← `SpotifyMusicClientImpl`, `GoogleOAuth2Client` ← `...Impl` |
-| **도메인 내부 서비스 / 인프라** | **클래스 직접 주입** (별도 토큰 없음) | `PrismaService`, `JwtService`, `S3Service`, `NotificationService` |
+| 대상                            | 규칙                                                        | 예시                                                                              |
+| ------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| **외부 소스 클라이언트**        | **추상 클래스를 DI 토큰**으로 두고 `useClass`로 구현 바인딩 | `SpotifyMusicClient` ← `SpotifyMusicClientImpl`, `GoogleOAuth2Client` ← `...Impl` |
+| **도메인 내부 서비스 / 인프라** | **클래스 직접 주입** (별도 토큰 없음)                       | `PrismaService`, `JwtService`, `S3Service`, `NotificationService`                 |
 
 이유: 외부 소스는 E2E에서 `overrideProvider`로 mock 교체가 필요하므로 추상 토큰으로 경계를 만든다.
 내부 서비스/인프라는 교체 지점이 아니므로 직접 주입으로 단순하게 둔다.
@@ -110,14 +110,14 @@ export class SongNotFoundException extends NotFoundException {
 
 ### HTTP 상태 코드
 
-| 상황 | 코드 |
-|---|---|
-| 리소스 생성(POST) | `201 CREATED` |
-| 액션/조회성 POST (투표 등, 결과 본문 있음) | `200 OK` |
-| **삭제·취소 등 응답 본문이 없으면** | **`204 NO_CONTENT`** |
-| 결과값을 본문으로 돌려주면 | `200 OK` |
+| 상황                                                                  | 코드                                       |
+| --------------------------------------------------------------------- | ------------------------------------------ |
+| 리소스 생성(POST)                                                     | `201 CREATED` (본문이 없어도 생성이면 201) |
+| 결과값을 본문으로 돌려주는 변이/조회                                  | `200 OK`                                   |
+| **응답 본문이 없는 변이(수정·삭제·취소·액션: PUT/PATCH/DELETE/POST)** | **`204 NO_CONTENT`**                       |
 
-> 규칙: **본문이 없으면 204, 본문이 있으면 200.** (과거 댓글 삭제만 200이었음 → 본문 없으면 204로 통일.)
+> 규칙: **생성은 201, 본문을 돌려주면 200, 본문이 없으면 204.**
+> (과거 댓글 삭제·수정, 플레이리스트 수정, 알림 단건 읽음, 프로필 수정, 회원 탈퇴가 본문 없이 200이었음 → 204로 통일.)
 
 ---
 
@@ -164,11 +164,17 @@ export class SongNotFoundException extends NotFoundException {
 
 ---
 
-## 부록: 코드 정합성 점검 (문서 기준 대비 현재 이탈)
+## 부록: 코드 정합성 점검
 
-아래는 위 규칙 확정 시점에 코드가 아직 따르지 못하는 지점이다. 해당 파일을 손볼 때 함께 정리한다.
+### 적용 완료 (refactor/convention-alignment)
 
-- **응답 DTO 접미사**: song/user/auth 계열 `...ResponseDto` → 무접미사 `...Response`로 리네임 대상.
-- **DELETE 상태코드**: `comment.controller.ts`의 댓글 삭제가 `200` → 본문 없으면 `204`.
-- **중복 예외 통합**: `SongNotFoundException`(song/playlist/dropping), `DroppingNotFoundException`(like/comment/dropping), `PlaylistNotFoundException`·`UserNotFoundException`(dropping)을 `src/common/exceptions/`로 단일화 + 메시지 표기 통일("드랍").
-- **공통 헬퍼 추출(선택)**: `findXxxOrThrow`/소유권 검증(`userId !== ...`) 반복, `loadSongMap`↔`resolveSongs` 곡 로딩 중복.
+- ✅ **응답 DTO 접미사**: song/user/auth/oauth2 계열 `...ResponseDto` → 무접미사 `...Response`로 리네임.
+  (playlist 내부 곡 항목 `SongResponse`는 song 도메인 표준 응답과 이름이 충돌해 `PlaylistSongResponse`로 명확화.)
+- ✅ **상태코드**: 본문 없는 변이(댓글 수정·삭제, 플레이리스트 수정, 알림 단건 읽음, 프로필 수정, 회원 탈퇴) → `204`.
+- ✅ **중복 예외 통합**: `SongNotFoundException`·`DroppingNotFoundException`·`PlaylistNotFoundException`·`UserNotFoundException`을
+  `src/common/exceptions/not-found.exception.ts`로 단일화 + 메시지 표기 통일("드랍").
+
+### 남은 개선 (선택)
+
+- **공통 헬퍼 추출**: `findXxxOrThrow`/소유권 검증(`userId !== ...`) 반복, `loadSongMap`↔`resolveSongs` 곡 로딩 중복.
+  → 컨벤션 위반은 아니며 코드 품질 개선 항목. 별도 작업으로 다룬다.

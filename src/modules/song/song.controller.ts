@@ -1,9 +1,9 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { SongListResponseDto, SongResponseDto } from './dto/song-response.dto';
+import { SongListResponse, SongResponse } from './dto/song-response.dto';
 import {
-  SongSearchListResponseDto,
+  SongSearchListResponse,
   SongSearchQueryDto,
 } from './dto/song-search.dto';
 import { SongService } from './song.service';
@@ -21,8 +21,8 @@ export class SongController {
   /** 전체 곡 목록 조회 (원본 getAllSongs) */
   @Get()
   @ApiOperation({ summary: '전체 곡 목록 조회' })
-  @ApiOkResponse({ type: SongListResponseDto })
-  getAllSongs(): Promise<SongListResponseDto> {
+  @ApiOkResponse({ type: SongListResponse })
+  getAllSongs(): Promise<SongListResponse> {
     return this.songService.getAllSongs();
   }
 
@@ -35,10 +35,10 @@ export class SongController {
   // 로그인 필수로 바꾸면 사용자 단위 제한으로 자연 전환됨.
   @UseGuards(ThrottlerGuard)
   @ApiOperation({ summary: '제목+가수 통합 검색 (Spotify, 레이트 리밋)' })
-  @ApiOkResponse({ type: SongSearchListResponseDto })
+  @ApiOkResponse({ type: SongSearchListResponse })
   searchSongs(
     @Query() dto: SongSearchQueryDto,
-  ): Promise<SongSearchListResponseDto> {
+  ): Promise<SongSearchListResponse> {
     return this.songService.searchSongs(dto.query);
   }
 
@@ -53,8 +53,8 @@ export class SongController {
    */
   @Get(':id')
   @ApiOperation({ summary: '특정 곡 조회(캐시)' })
-  @ApiOkResponse({ type: SongResponseDto })
-  getSongById(@Param('id') id: string): Promise<SongResponseDto> {
+  @ApiOkResponse({ type: SongResponse })
+  getSongById(@Param('id') id: string): Promise<SongResponse> {
     return this.songService.getSongById(id);
   }
 }

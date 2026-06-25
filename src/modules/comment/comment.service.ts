@@ -10,8 +10,8 @@ import { CommentResponse } from './dto/comment-response.dto';
 import {
   CommentAccessDeniedException,
   CommentNotFoundException,
-  DroppingNotFoundException,
 } from './exceptions/comment.exceptions';
+import { DroppingNotFoundException } from '../../common/exceptions/not-found.exception';
 
 @Injectable()
 export class CommentService {

@@ -4,12 +4,11 @@ import {
   NotFoundException,
 } from '../../../common/exceptions/business.exception';
 
-/** 플레이리스트를 찾을 수 없음 (원본 PlaylistNotFoundException) */
-export class PlaylistNotFoundException extends NotFoundException {
-  constructor() {
-    super('PLAYLIST_NOT_FOUND', '플레이리스트를 찾을 수 없습니다.');
-  }
-}
+/**
+ * playlist 도메인 전용 예외.
+ * 참고: PlaylistNotFoundException / SongNotFoundException 은 교차 참조되므로
+ * src/common/exceptions/not-found.exception.ts 로 통합되어 여기서 정의하지 않는다.
+ */
 
 /**
  * 플레이리스트 소유자가 아님 (원본 PlaylistAccessDeniedException).
@@ -36,12 +35,5 @@ export class SongAlreadyInPlaylistException extends AlreadyExistsException {
 export class SongNotInPlaylistException extends NotFoundException {
   constructor() {
     super('SONG_NOT_IN_PLAYLIST', '플레이리스트에 존재하지 않는 곡입니다.');
-  }
-}
-
-/** 곡을 찾을 수 없음 (원본 song 도메인 SongNotFoundException — playlist 내부에서 재사용) */
-export class SongNotFoundException extends NotFoundException {
-  constructor() {
-    super('SONG_NOT_FOUND', '곡을 찾을 수 없습니다.');
   }
 }

@@ -92,7 +92,7 @@ export class NotificationController {
   @Patch(':notificationId/read')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '알림 단건 읽음 처리' })
   markAsRead(
     @CurrentUser() user: AuthUser,

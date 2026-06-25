@@ -7,7 +7,7 @@ import {
   LikeDroppingListResponse,
   LikeToggleResponse,
 } from './dto/like-response.dto';
-import { DroppingNotFoundException } from './exceptions/like.exceptions';
+import { DroppingNotFoundException } from '../../common/exceptions/not-found.exception';
 
 @Injectable()
 export class LikeService {

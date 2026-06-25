@@ -178,7 +178,7 @@ describe('Notification E2E', () => {
     await request(app.getHttpServer())
       .patch(api(`/notifications/${firstId}/read`))
       .set('Authorization', `Bearer ${ownerToken}`)
-      .expect(200);
+      .expect(204);
 
     const unread2 = await request(app.getHttpServer())
       .get(api('/notifications/unread-count'))

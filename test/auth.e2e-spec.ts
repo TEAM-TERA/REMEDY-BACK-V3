@@ -106,7 +106,7 @@ describe('Foundation E2E (auth/user/health)', () => {
     await request(app.getHttpServer())
       .post(api('/users/withdrawal'))
       .set('Authorization', `Bearer ${token}`)
-      .expect(200);
+      .expect(204);
 
     // 같은 토큰으로 재접근 → 403
     const res = await request(app.getHttpServer())

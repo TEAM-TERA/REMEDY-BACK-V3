@@ -60,11 +60,11 @@ export class CommentController {
     return this.commentService.getCommentsByDropping(droppingId);
   }
 
-  /** 댓글 수정 (원본 updateComment) — 인증 필요, 본인만, 200 */
+  /** 댓글 수정 (원본 updateComment) — 인증 필요, 본인만, 본문 없음 → 204 */
   @Put(':commentId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '댓글 수정' })
   updateComment(
     @Param('commentId', ParseIntPipe) commentId: number,
@@ -74,11 +74,11 @@ export class CommentController {
     return this.commentService.updateComment(user.id, commentId, request);
   }
 
-  /** 댓글 삭제 (원본 deleteComment) — 인증 필요, 본인만, 200(원본 ok()) */
+  /** 댓글 삭제 (원본 deleteComment) — 인증 필요, 본인만, 본문 없음 → 204 */
   @Delete(':commentId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '댓글 삭제' })
   deleteComment(
     @Param('commentId', ParseIntPipe) commentId: number,
