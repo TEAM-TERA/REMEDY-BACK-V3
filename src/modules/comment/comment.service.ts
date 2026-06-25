@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { Comment } from '@prisma/client';
+import { Prisma, type Comment } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import {
@@ -35,13 +35,24 @@ export class CommentService {
   ): Promise<void> {
     const dropping = await this.findDroppingOrThrow(request.droppingId);
 
-    await this.prisma.comment.create({
-      data: {
-        content: request.content,
-        userId,
-        droppingId: request.droppingId,
-      },
-    });
+    try {
+      await this.prisma.comment.create({
+        data: {
+          content: request.content,
+          userId,
+          droppingId: request.droppingId,
+        },
+      });
+    } catch (error) {
+      // 존재검증과 insert 사이에 드롭이 삭제된 경우(FK 위반 P2003) → 일관된 404
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        throw new DroppingNotFoundException();
+      }
+      throw error;
+    }
 
     try {
       await this.notificationService.notifyComment({
