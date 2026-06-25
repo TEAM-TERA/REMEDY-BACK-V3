@@ -1,9 +1,11 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
+import { Status } from '@prisma/client';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AuthUser } from '../../../common/decorators/current-user.decorator';
+import { WithdrawnUserException } from '../../user/exceptions/user.exceptions';
 
 export interface JwtPayload {
   /** userId */
@@ -26,6 +28,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: secret,
+      // 서명 알고리즘을 HS256 으로 고정해 alg-confusion(예: alg=none) 공격을 차단한다.
+      algorithms: ['HS256'],
     });
   }
 
@@ -41,6 +45,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     if (!user) {
       throw new UnauthorizedException('Invalid token: user not found');
+    }
+    // 탈퇴(soft-delete) 사용자는 유효 토큰이 남아 있어도 인증을 거부한다.
+    if (user.status === Status.WITHDRAWAL) {
+      throw new WithdrawnUserException();
     }
 
     return user;

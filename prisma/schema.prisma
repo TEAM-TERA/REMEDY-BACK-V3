@@ -67,7 +67,9 @@ model User {
   receivedNotifications Notification[] @relation("ReceivedNotifications")
   sentNotifications     Notification[] @relation("SentNotifications")
 
-  @@index([provider, providerId])
+  // OAuth2 동시 최초 로그인의 중복 계정 생성을 DB 레벨에서 차단(P2002 복구의 전제).
+  // providerId 가 NULL 인 LOCAL 사용자는 Postgres NULL 비교 규칙상 다중 허용된다.
+  @@unique([provider, providerId])
   @@map("users")
 }
 

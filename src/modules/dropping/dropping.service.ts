@@ -48,10 +48,42 @@ export class DroppingService {
   /** 1m 중복 방지 반경(m). 원본 0.001km = 1m */
   private static readonly DROPPING_CONSTRAINT_DISTANCE_METERS = 1;
 
+  /** Serializable 트랜잭션 직렬화 충돌(P2034) 시 최대 재시도 횟수 */
+  private static readonly SERIALIZABLE_MAX_ATTEMPTS = 3;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
   ) {}
+
+  /**
+   * Serializable 격리 트랜잭션을 직렬화 실패(P2034) 시 재시도하며 실행한다.
+   * 동시 요청이 1m 중복검사/투표 read-modify-write 에서 충돌하면 Postgres 가
+   * serialization_failure 를 던지는데, 이를 그대로 500 으로 흘리지 않고 재시도한다.
+   */
+  private async runSerializable<T>(
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.prisma.$transaction(fn, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034' &&
+          attempt < DroppingService.SERIALIZABLE_MAX_ATTEMPTS
+        ) {
+          this.logger.warn(
+            `직렬화 충돌(P2034) 재시도 ${attempt}/${DroppingService.SERIALIZABLE_MAX_ATTEMPTS}`,
+          );
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
 
   // ── 생성 ────────────────────────────────────────────────────
 
@@ -105,6 +137,9 @@ export class DroppingService {
     userId: number,
     request: DroppingCreateRequest,
   ): Promise<void> {
+    // 모든 옵션 곡이 실제 존재해야 상세/검색 응답이 깨지지 않는다(없으면 SongNotFound)
+    await this.loadSongMap(request.options!);
+
     const optionVotes: Record<string, number[]> = {};
     for (const songId of request.options!) {
       optionVotes[songId] = [];
@@ -138,6 +173,9 @@ export class DroppingService {
       };
     }
 
+    // 플레이리스트의 모든 곡이 실제 존재해야 상세/검색 응답이 깨지지 않는다
+    await this.loadSongMap(payload.songIds);
+
     await this.insertDropping(userId, request, DroppingType.PLAYLIST, payload);
   }
 
@@ -156,9 +194,8 @@ export class DroppingService {
   ): Promise<string> {
     const expiryDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
 
-    return this.prisma.$transaction(
-      async (tx) => {
-        const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    return this.runSerializable(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
           SELECT id
           FROM droppings
           WHERE is_deleted = false
@@ -170,27 +207,25 @@ export class DroppingService {
             )
           LIMIT 1
         `);
-        if (rows.length > 0) {
-          throw new DroppingAlreadyExistsException();
-        }
+      if (rows.length > 0) {
+        throw new DroppingAlreadyExistsException();
+      }
 
-        const created = await tx.dropping.create({
-          data: {
-            droppingType: type,
-            payload: payload as unknown as Prisma.InputJsonValue,
-            userId,
-            content: request.content ?? null,
-            latitude: request.latitude,
-            longitude: request.longitude,
-            address: request.address,
-            expiryDate,
-          },
-          select: { id: true },
-        });
-        return created.id;
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+      const created = await tx.dropping.create({
+        data: {
+          droppingType: type,
+          payload: payload as unknown as Prisma.InputJsonValue,
+          userId,
+          content: request.content ?? null,
+          latitude: request.latitude,
+          longitude: request.longitude,
+          address: request.address,
+          expiryDate,
+        },
+        select: { id: true },
+      });
+      return created.id;
+    });
   }
 
   // ── 거리기반 검색 ────────────────────────────────────────────
@@ -237,7 +272,11 @@ export class DroppingService {
     return { droppings: await this.toSearchResponses(rows, userId) };
   }
 
-  /** 내 dropping 목록 (원본 DroppingService.getUserDroppings, createdAt desc) */
+  /**
+   * 내 dropping 목록 (원본 DroppingService.getUserDroppings, createdAt desc).
+   * 원본은 findByUserId 만 수행해 삭제/만료분도 포함하므로(내 보관함 성격),
+   * 거리검색과 달리 is_deleted/expiry 필터를 적용하지 않는다(원본 패리티).
+   */
   async getUserDroppings(userId: number): Promise<DroppingSearchListResponse> {
     const rows = await this.prisma.$queryRaw<DroppingRow[]>(Prisma.sql`
       SELECT
@@ -533,52 +572,44 @@ export class DroppingService {
     userId: number,
     songId: string,
   ): Promise<void> {
-    await this.prisma.$transaction(
-      async (tx) => {
-        const payload = await this.loadVotePayloadForUpdate(tx, droppingId);
+    await this.runSerializable(async (tx) => {
+      const payload = await this.loadVotePayloadForUpdate(tx, droppingId);
 
-        if (
-          !Object.prototype.hasOwnProperty.call(payload.optionVotes, songId)
-        ) {
-          throw new InvalidVoteOptionException();
-        }
+      if (!Object.prototype.hasOwnProperty.call(payload.optionVotes, songId)) {
+        throw new InvalidVoteOptionException();
+      }
 
-        // 모든 옵션에서 유저 제거 후 선택 옵션에 추가
-        for (const key of Object.keys(payload.optionVotes)) {
-          payload.optionVotes[key] = payload.optionVotes[key].filter(
-            (id) => id !== userId,
-          );
-        }
-        payload.optionVotes[songId].push(userId);
+      // 모든 옵션에서 유저 제거 후 선택 옵션에 추가
+      for (const key of Object.keys(payload.optionVotes)) {
+        payload.optionVotes[key] = payload.optionVotes[key].filter(
+          (id) => id !== userId,
+        );
+      }
+      payload.optionVotes[songId].push(userId);
 
-        await tx.dropping.update({
-          where: { id: droppingId },
-          data: { payload: payload as unknown as Prisma.InputJsonValue },
-        });
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+      await tx.dropping.update({
+        where: { id: droppingId },
+        data: { payload: payload as unknown as Prisma.InputJsonValue },
+      });
+    });
   }
 
   /** 투표 취소 (원본 VoteDroppingService.cancelVote + removeVote) */
   async cancelVote(droppingId: string, userId: number): Promise<void> {
-    await this.prisma.$transaction(
-      async (tx) => {
-        const payload = await this.loadVotePayloadForUpdate(tx, droppingId);
+    await this.runSerializable(async (tx) => {
+      const payload = await this.loadVotePayloadForUpdate(tx, droppingId);
 
-        for (const key of Object.keys(payload.optionVotes)) {
-          payload.optionVotes[key] = payload.optionVotes[key].filter(
-            (id) => id !== userId,
-          );
-        }
+      for (const key of Object.keys(payload.optionVotes)) {
+        payload.optionVotes[key] = payload.optionVotes[key].filter(
+          (id) => id !== userId,
+        );
+      }
 
-        await tx.dropping.update({
-          where: { id: droppingId },
-          data: { payload: payload as unknown as Prisma.InputJsonValue },
-        });
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+      await tx.dropping.update({
+        where: { id: droppingId },
+        data: { payload: payload as unknown as Prisma.InputJsonValue },
+      });
+    });
   }
 
   /** 트랜잭션 내에서 VOTE dropping 의 payload 를 로드 + 타입 검증 */
@@ -590,6 +621,10 @@ export class DroppingService {
       where: { id: droppingId },
     });
     if (!dropping) {
+      throw new DroppingNotFoundException();
+    }
+    // 삭제(soft-delete)되었거나 만료된 드롭은 투표를 받지 않는다(검색 결과와 일관).
+    if (dropping.isDeleted || dropping.expiryDate <= new Date()) {
       throw new DroppingNotFoundException();
     }
     if (dropping.droppingType !== DroppingType.VOTE) {

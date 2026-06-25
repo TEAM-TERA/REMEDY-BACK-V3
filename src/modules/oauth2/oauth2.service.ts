@@ -80,10 +80,13 @@ export class OAuth2Service {
    * 3) 그 외 신규 생성. 동시 최초 로그인(P2002) 은 재조회로 흡수.
    */
   private async findOrCreateUser(userInfo: OAuth2UserInfo): Promise<User> {
-    const byProvider = await this.prisma.user.findFirst({
+    // providerId 는 processOAuth2Login 에서 non-null 보장됨 → 복합 unique 키로 조회
+    const byProvider = await this.prisma.user.findUnique({
       where: {
-        provider: userInfo.provider,
-        providerId: userInfo.providerId,
+        provider_providerId: {
+          provider: userInfo.provider,
+          providerId: userInfo.providerId,
+        },
       },
     });
     if (byProvider) {
@@ -110,14 +113,25 @@ export class OAuth2Service {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        const created = await this.prisma.user.findFirst({
+        // (provider, providerId) 또는 email unique 충돌 모두 흡수 — 동시 생성된 행 재조회
+        const created = await this.prisma.user.findUnique({
           where: {
-            provider: userInfo.provider,
-            providerId: userInfo.providerId,
+            provider_providerId: {
+              provider: userInfo.provider,
+              providerId: userInfo.providerId,
+            },
           },
         });
         if (created) {
           return created;
+        }
+        if (userInfo.email) {
+          const byEmail = await this.prisma.user.findUnique({
+            where: { email: userInfo.email },
+          });
+          if (byEmail) {
+            return byEmail;
+          }
         }
       }
       throw error;

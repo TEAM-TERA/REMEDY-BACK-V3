@@ -83,4 +83,36 @@ describe('Foundation E2E (auth/user/health)', () => {
     expect(res.body.username).toBe(user.username);
     expect(res.body.gender).toBe(true);
   });
+
+  it('탈퇴 후에는 유효 토큰이어도 인증 거부 → 403 (USER_WITHDRAWN)', async () => {
+    const quitter = {
+      username: '탈퇴자',
+      password: 'quit-secret-1',
+      email: 'quitter@example.com',
+      birthDate: '2000-03-03',
+      gender: false,
+    };
+    await request(app.getHttpServer())
+      .post(api('/auth/register'))
+      .send(quitter)
+      .expect(201);
+    const login = await request(app.getHttpServer())
+      .post(api('/auth/login'))
+      .send({ email: quitter.email, password: quitter.password })
+      .expect(200);
+    const token = login.body.accessToken as string;
+
+    // 탈퇴(soft-delete) 수행 — 토큰은 그대로 유효
+    await request(app.getHttpServer())
+      .post(api('/users/withdrawal'))
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    // 같은 토큰으로 재접근 → 403
+    const res = await request(app.getHttpServer())
+      .get(api('/users'))
+      .set('Authorization', `Bearer ${token}`)
+      .expect(403);
+    expect(res.body.code).toBe('USER_WITHDRAWN');
+  });
 });
