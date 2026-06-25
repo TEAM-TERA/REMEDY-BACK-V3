@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SongListResponseDto, SongResponseDto } from './dto/song-response.dto';
 import {
@@ -30,7 +31,10 @@ export class SongController {
    * 검색 라우트는 ':id' 보다 먼저 선언해 'search' 가 id 로 해석되지 않게 한다.
    */
   @Get('search')
-  @ApiOperation({ summary: '제목+가수 통합 검색 (Spotify)' })
+  // 공개 엔드포인트라 IP 기준 레이트 리밋(공유 Spotify 풀을 한 클라이언트가 독식 방지).
+  // 로그인 필수로 바꾸면 사용자 단위 제한으로 자연 전환됨.
+  @UseGuards(ThrottlerGuard)
+  @ApiOperation({ summary: '제목+가수 통합 검색 (Spotify, 레이트 리밋)' })
   @ApiOkResponse({ type: SongSearchListResponseDto })
   searchSongs(
     @Query() dto: SongSearchQueryDto,
