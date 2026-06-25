@@ -6,6 +6,8 @@ import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter
 import { PrismaService } from '../src/prisma/prisma.service';
 import { DroppingModule } from '../src/modules/dropping/dropping.module';
 import { truncateAll } from './utils/test-app';
+import { SpotifyMusicClient } from '../src/modules/music-source/clients/spotify-music.client';
+import { YouTubeMusicResolver } from '../src/modules/music-source/clients/youtube-music.resolver';
 
 /**
  * Dropping 도메인 E2E (이 서비스의 핵심).
@@ -26,9 +28,19 @@ import { truncateAll } from './utils/test-app';
  *  - 먼 곳: lat/lng 각각 +0.5도(약 50km+) → 1km 검색에 미포함
  */
 async function createDroppingTestApp(): Promise<INestApplication> {
+  // 곡은 prisma 로 시드(캐시 hit)하므로 외부 소스는 호출되지 않지만,
+  // 실 클라이언트 의존을 끊기 위해 안전한 mock 을 주입한다(미시드 곡 참조 시 결정적으로 미발견).
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule, DroppingModule],
-  }).compile();
+  })
+    .overrideProvider(SpotifyMusicClient)
+    .useValue({
+      search: () => Promise.resolve([]),
+      getTracks: () => Promise.resolve([]),
+    })
+    .overrideProvider(YouTubeMusicResolver)
+    .useValue({ resolve: () => Promise.resolve(null) })
+    .compile();
 
   const app = moduleRef.createNestApplication();
   app.setGlobalPrefix('api/v1');
@@ -248,6 +260,15 @@ describe('Dropping E2E', () => {
     expect(res.body.username).toBe(owner.username);
     expect(res.body.albumImageUrl).toBe('/img/song1.png');
     expect(res.body.content).toBe('여기서 듣는 좋은 날');
+    // 재생 링크: Spotify 는 항상 가능, YouTube 는 미확인 시드라 미지원
+    expect(res.body.playLinks.spotify).toEqual({
+      available: true,
+      url: 'https://open.spotify.com/track/d-song-1',
+    });
+    expect(res.body.playLinks.youtubeMusic).toEqual({
+      available: false,
+      url: null,
+    });
   });
 
   it('GET /droppings/:droppingId (없는 id) → 404 (DROPPING_NOT_FOUND)', async () => {
