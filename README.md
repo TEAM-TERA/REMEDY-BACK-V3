@@ -25,6 +25,10 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## Conventions
+
+코드 컨벤션(모듈 구조 · DI · 예외 · DTO · HTTP 상태코드 · 커밋 규칙)은 [docs/CONVENTIONS.md](docs/CONVENTIONS.md)를 따른다.
+
 ## Project setup
 
 ```bash

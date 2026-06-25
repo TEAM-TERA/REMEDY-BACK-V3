@@ -6,12 +6,12 @@ import { SpotifyMusicClient } from '../music-source/clients/spotify-music.client
 import { YouTubeMusicResolver } from '../music-source/clients/youtube-music.resolver';
 import { MusicTrack } from '../music-source/music-track';
 import { buildPlayLinks } from '../music-source/play-links';
-import { SongListResponseDto, SongResponseDto } from './dto/song-response.dto';
+import { SongListResponse, SongResponse } from './dto/song-response.dto';
 import {
-  SongSearchListResponseDto,
-  SongSearchResponseDto,
+  SongSearchListResponse,
+  SongSearchResponse,
 } from './dto/song-search.dto';
-import { SongNotFoundException } from './exceptions/song.exceptions';
+import { SongNotFoundException } from '../../common/exceptions/not-found.exception';
 
 /** 검색어 결과 캐시 TTL(인기 검색어의 Spotify 반복 호출 절감) */
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -38,7 +38,7 @@ export class SongService {
   private readonly logger = new Logger(SongService.name);
 
   /** 검색어 → 결과 캐시(동일 검색어의 Spotify 반복 호출·공유 레이트리밋 압박 감소) */
-  private readonly searchCache = new TtlCache<SongSearchResponseDto[]>(
+  private readonly searchCache = new TtlCache<SongSearchResponse[]>(
     SEARCH_CACHE_TTL_MS,
     SEARCH_CACHE_MAX_ENTRIES,
   );
@@ -53,7 +53,7 @@ export class SongService {
    * 통합 검색 — Spotify 프록시 + 검색어 캐시(TTL).
    * 동일 검색어는 캐시로 응답해 Spotify 호출을 줄인다(곡 메타는 드랍 시 별도 영구 캐시).
    */
-  async searchSongs(query: string): Promise<SongSearchListResponseDto> {
+  async searchSongs(query: string): Promise<SongSearchListResponse> {
     const key = query.trim().toLowerCase();
     if (key.length === 0) {
       return { songSearchResponses: [] };
@@ -74,7 +74,7 @@ export class SongService {
    * 단건 조회(로컬 캐시). 곡은 드랍 생성 시 ensureSongs 로 캐시되므로,
    * 여기서는 부수효과(외부 fetch/쓰기) 없이 캐시만 조회한다(없으면 SONG_NOT_FOUND).
    */
-  async getSongById(id: string): Promise<SongResponseDto> {
+  async getSongById(id: string): Promise<SongResponse> {
     const song = await this.prisma.song.findUnique({ where: { id } });
     if (!song) {
       throw new SongNotFoundException();
@@ -83,7 +83,7 @@ export class SongService {
   }
 
   /** 캐시된 전체 곡 목록 (결정적 정렬: title) */
-  async getAllSongs(): Promise<SongListResponseDto> {
+  async getAllSongs(): Promise<SongListResponse> {
     const songs = await this.prisma.song.findMany({
       orderBy: { title: 'asc' },
     });
@@ -180,7 +180,7 @@ export class SongService {
 
   // ── 매핑 ──────────────────────────────────────────────────────
 
-  private toSongResponse(song: Song): SongResponseDto {
+  private toSongResponse(song: Song): SongResponse {
     return {
       id: song.id,
       title: song.title,
@@ -192,7 +192,7 @@ export class SongService {
     };
   }
 
-  private toSearchResponse(track: MusicTrack): SongSearchResponseDto {
+  private toSearchResponse(track: MusicTrack): SongSearchResponse {
     return {
       id: track.id,
       title: track.title,

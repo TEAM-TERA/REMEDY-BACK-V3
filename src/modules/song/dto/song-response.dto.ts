@@ -5,7 +5,7 @@ import { PlayLinksDto } from '../../music-source/play-links';
  * 단건/목록용 곡 응답.
  * 필드: id(Spotify track id), title, artist, album, duration, albumImagePath, playLinks
  */
-export class SongResponseDto {
+export class SongResponse {
   @ApiProperty({ description: '곡 ID (Spotify track id)' })
   id!: string;
 
@@ -31,7 +31,7 @@ export class SongResponseDto {
 /**
  * 전체 곡 목록 응답 (필드명 songResponses 유지)
  */
-export class SongListResponseDto {
-  @ApiProperty({ type: [SongResponseDto], description: '곡 목록' })
-  songResponses!: SongResponseDto[];
+export class SongListResponse {
+  @ApiProperty({ type: [SongResponse], description: '곡 목록' })
+  songResponses!: SongResponse[];
 }

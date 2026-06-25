@@ -5,7 +5,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
-import { LoginResponseDto } from './dto/auth-response.dto';
+import { LoginResponse } from './dto/auth-response.dto';
 import type { JwtPayload } from './strategies/jwt.strategy';
 import {
   EmailAlreadyExistsWithOAuth2Exception,
@@ -13,7 +13,7 @@ import {
   OAuth2UserCannotUsePasswordLoginException,
   UserAlreadyExistsException,
 } from './exceptions/auth.exceptions';
-import { UserNotFoundException } from '../user/exceptions/user.exceptions';
+import { UserNotFoundException } from '../../common/exceptions/not-found.exception';
 
 const SALT_ROUNDS = 10;
 
@@ -52,7 +52,7 @@ export class AuthService {
   }
 
   /** 로컬 로그인 (원본 AuthService.login 이식 — 토큰을 body로 반환) */
-  async login(dto: LoginDto): Promise<LoginResponseDto> {
+  async login(dto: LoginDto): Promise<LoginResponse> {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });

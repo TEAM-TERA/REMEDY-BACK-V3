@@ -21,12 +21,5 @@ export class CommentAccessDeniedException extends ForbiddenException {
   }
 }
 
-/**
- * 드랍핑을 찾을 수 없음 (원본 dropping 도메인 DroppingNotFoundException).
- * dropping 모듈이 아직 없으므로 comment 도메인 내부에서 정의해 재사용한다.
- */
-export class DroppingNotFoundException extends NotFoundException {
-  constructor() {
-    super('DROPPING_NOT_FOUND', '드랍핑을 찾을 수 없습니다.');
-  }
-}
+// 참고: DroppingNotFoundException 은 교차 참조되므로
+// src/common/exceptions/not-found.exception.ts 로 통합되었다.

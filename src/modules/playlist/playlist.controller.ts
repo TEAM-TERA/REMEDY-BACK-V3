@@ -71,7 +71,7 @@ export class PlaylistController {
   @Put(':playlistId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '플레이리스트 이름 수정' })
   updatePlaylist(
     @Param('playlistId') playlistId: string,

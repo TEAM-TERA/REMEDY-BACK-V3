@@ -1,15 +1,8 @@
-import {
-  BusinessException,
-  NotFoundException,
-} from '../../../common/exceptions/business.exception';
+import { BusinessException } from '../../../common/exceptions/business.exception';
 import { HttpStatus } from '@nestjs/common';
 
-/** 사용자를 찾을 수 없음 */
-export class UserNotFoundException extends NotFoundException {
-  constructor() {
-    super('USER_NOT_FOUND', '사용자를 찾을 수 없습니다.');
-  }
-}
+// 참고: UserNotFoundException 은 교차 참조되므로
+// src/common/exceptions/not-found.exception.ts 로 통합되었다.
 
 /** 탈퇴한 사용자 */
 export class WithdrawnUserException extends BusinessException {

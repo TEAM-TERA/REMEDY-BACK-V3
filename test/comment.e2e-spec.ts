@@ -179,12 +179,12 @@ describe('Comment E2E', () => {
     expect(res.body.code).toBe('DROPPING_NOT_FOUND');
   });
 
-  it('PUT /comments/:commentId → 200 (본인 수정)', async () => {
+  it('PUT /comments/:commentId → 204 (본인 수정)', async () => {
     await request(app.getHttpServer())
       .put(api(`/comments/${commentId}`))
       .set('Authorization', `Bearer ${authorToken}`)
       .send({ content: '수정된 댓글' })
-      .expect(200);
+      .expect(204);
 
     const updated = await prisma.comment.findUnique({
       where: { id: commentId },
@@ -218,11 +218,11 @@ describe('Comment E2E', () => {
     expect(res.body.code).toBe('COMMENT_ACCESS_DENIED');
   });
 
-  it('DELETE /comments/:commentId → 200 (본인 삭제)', async () => {
+  it('DELETE /comments/:commentId → 204 (본인 삭제)', async () => {
     await request(app.getHttpServer())
       .delete(api(`/comments/${commentId}`))
       .set('Authorization', `Bearer ${authorToken}`)
-      .expect(200);
+      .expect(204);
 
     const deleted = await prisma.comment.findUnique({
       where: { id: commentId },

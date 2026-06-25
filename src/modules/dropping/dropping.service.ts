@@ -21,17 +21,19 @@ import {
 import { MusicPayload, PlaylistPayload, VotePayload } from './dropping.payload';
 import {
   DroppingAlreadyExistsException,
-  DroppingNotFoundException,
   EmptyPlaylistSongsException,
   EmptyVoteOptionsException,
   InvalidDroppingDeleteRequestException,
   InvalidDroppingTypeException,
   InvalidVoteOptionException,
+  UnauthorizedPlaylistAccessException,
+} from './exceptions/dropping.exceptions';
+import {
+  DroppingNotFoundException,
   PlaylistNotFoundException,
   SongNotFoundException,
-  UnauthorizedPlaylistAccessException,
   UserNotFoundException,
-} from './exceptions/dropping.exceptions';
+} from '../../common/exceptions/not-found.exception';
 
 /**
  * dropping 도메인 서비스 (원본 DroppingServiceFacade + DroppingService +

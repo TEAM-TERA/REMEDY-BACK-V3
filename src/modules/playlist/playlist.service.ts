@@ -10,15 +10,17 @@ import {
   PlaylistDetailResponse,
   PlaylistListResponse,
   PlaylistResponse,
-  SongResponse,
+  PlaylistSongResponse,
 } from './dto/playlist-response.dto';
 import {
-  PlaylistNotFoundException,
   SongAlreadyInPlaylistException,
-  SongNotFoundException,
   SongNotInPlaylistException,
   UnauthorizedPlaylistAccessException,
 } from './exceptions/playlist.exceptions';
+import {
+  PlaylistNotFoundException,
+  SongNotFoundException,
+} from '../../common/exceptions/not-found.exception';
 
 @Injectable()
 export class PlaylistService {
@@ -165,7 +167,9 @@ export class PlaylistService {
    * songIds 를 곡 정보로 해석 (순서 유지).
    * 하나라도 존재하지 않으면 SongNotFoundException (원본 getPlaylist 동작).
    */
-  private async resolveSongs(songIds: string[]): Promise<SongResponse[]> {
+  private async resolveSongs(
+    songIds: string[],
+  ): Promise<PlaylistSongResponse[]> {
     if (songIds.length === 0) return [];
 
     const songs = await this.prisma.song.findMany({
@@ -244,8 +248,8 @@ export class PlaylistService {
     };
   }
 
-  /** Song → SongResponse 변환 (원본 SongMapper.toSongResponse) */
-  private toSongResponse(song: Song): SongResponse {
+  /** Song → PlaylistSongResponse 변환 (원본 SongMapper.toSongResponse) */
+  private toSongResponse(song: Song): PlaylistSongResponse {
     return {
       id: song.id,
       title: song.title,

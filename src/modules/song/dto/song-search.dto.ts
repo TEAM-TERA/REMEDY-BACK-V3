@@ -17,7 +17,7 @@ export class SongSearchQueryDto {
  * 필드: id(Spotify track id), title, artist, album, albumImagePath (duration 제외).
  * 재생 링크/YouTube 가용성은 드랍 생성(ensureSongs) 시점에 확정되므로 검색 결과엔 싣지 않는다.
  */
-export class SongSearchResponseDto {
+export class SongSearchResponse {
   @ApiProperty({ description: '곡 ID (Spotify track id)' })
   id!: string;
 
@@ -38,7 +38,7 @@ export class SongSearchResponseDto {
  * 검색 결과 목록 응답 (원본 SongSearchListResponse 이식)
  * 원본 필드명(songSearchResponses)을 그대로 유지한다.
  */
-export class SongSearchListResponseDto {
-  @ApiProperty({ type: [SongSearchResponseDto], description: '검색 결과 목록' })
-  songSearchResponses!: SongSearchResponseDto[];
+export class SongSearchListResponse {
+  @ApiProperty({ type: [SongSearchResponse], description: '검색 결과 목록' })
+  songSearchResponses!: SongSearchResponse[];
 }
