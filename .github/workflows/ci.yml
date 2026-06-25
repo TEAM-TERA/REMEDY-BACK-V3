@@ -88,6 +88,8 @@ jobs:
       - name: Generate Prisma client
         run: pnpm prisma generate
 
-      # 마이그레이션은 jest globalSetup(prisma migrate deploy)이 .env.test 기준으로 수행
+      # 마이그레이션은 jest globalSetup(prisma migrate deploy)이 .env.test 기준으로 수행.
+      # (스키마 드리프트 자동게이트는 raw SQL 전용 객체 — pg_trgm GIN/PostGIS GiST 인덱스·트리거 —
+      #  가 Prisma datamodel 에 없어 false positive 가 나므로 도입하지 않음. migrate deploy 성공이 1차 검증)
       - name: Run E2E tests
         run: pnpm run test:e2e

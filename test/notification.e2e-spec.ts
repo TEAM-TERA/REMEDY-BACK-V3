@@ -279,13 +279,29 @@ describe('Notification E2E', () => {
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
 
-      // 지정한 이벤트 이름이 스트림에 나타날 때까지 읽는다(타임아웃 보호).
+      // 지정한 이벤트 이름이 스트림에 나타날 때까지 읽는다.
+      // 미수신 시 it 타임아웃(15s)까지 매달리지 않도록 자체 타임아웃(5s)으로 빠르게 실패시킨다.
       const readUntil = async (marker: string): Promise<string> => {
         let buf = '';
+        const deadline = Date.now() + 5000;
         while (!buf.includes(marker)) {
-          const { value, done } = await reader.read();
-          if (done) throw new Error(`스트림 종료, '${marker}' 미수신`);
-          buf += decoder.decode(value, { stream: true });
+          let timer: NodeJS.Timeout | undefined;
+          const timeout = new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`'${marker}' 5s 내 미수신`)),
+              Math.max(0, deadline - Date.now()),
+            );
+          });
+          try {
+            const { value, done } = await Promise.race([
+              reader.read(),
+              timeout,
+            ]);
+            if (done) throw new Error(`스트림 종료, '${marker}' 미수신`);
+            buf += decoder.decode(value, { stream: true });
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
         }
         return buf;
       };

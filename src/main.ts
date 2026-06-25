@@ -21,7 +21,14 @@ async function bootstrap(): Promise<void> {
 
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  app.enableCors();
+  const configService = app.get(ConfigService);
+
+  // CORS_ORIGINS(쉼표 구분)가 설정되면 화이트리스트, 미설정(로컬/개발)이면 전체 허용
+  const corsOrigins = configService.get<string>('CORS_ORIGINS');
+  app.enableCors({
+    origin: corsOrigins ? corsOrigins.split(',').map((o) => o.trim()) : true,
+    credentials: true,
+  });
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Remedy API')
@@ -33,8 +40,8 @@ async function bootstrap(): Promise<void> {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('docs', app, document);
 
-  const configService = app.get(ConfigService);
-  const port = configService.get<number>('PORT') ?? 3000;
+  // ConfigService 는 원본 process.env 문자열을 반환하므로 명시적으로 숫자 변환
+  const port = Number(configService.get('PORT')) || 3000;
 
   await app.listen(port);
 }

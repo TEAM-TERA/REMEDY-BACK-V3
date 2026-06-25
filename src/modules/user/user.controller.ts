@@ -1,9 +1,12 @@
 import {
   Body,
   Controller,
+  FileTypeValidator,
   Get,
   HttpCode,
   HttpStatus,
+  MaxFileSizeValidator,
+  ParseFilePipe,
   Patch,
   Post,
   Put,
@@ -68,7 +71,16 @@ export class UserController {
   @ApiOkResponse({ type: UserProfileImageResponseDto })
   @UseInterceptors(FileInterceptor('image'))
   updateProfileImage(
-    @UploadedFile() image: Express.Multer.File,
+    @UploadedFile(
+      new ParseFilePipe({
+        // 필수 + 5MB 이하 + 이미지 MIME 화이트리스트
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
+          new FileTypeValidator({ fileType: /^image\/(jpe?g|png|webp|gif)$/ }),
+        ],
+      }),
+    )
+    image: Express.Multer.File,
     @CurrentUser() user: AuthUser,
   ): Promise<UserProfileImageResponseDto> {
     return this.userService.updateProfileImage(image, user);

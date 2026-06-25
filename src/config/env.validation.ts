@@ -27,6 +27,11 @@ class EnvironmentVariables {
   @IsInt()
   PORT: number = 3000;
 
+  // 허용할 CORS origin 목록(쉼표 구분). 미설정 시 전체 허용(로컬/개발)
+  @IsOptional()
+  @IsString()
+  CORS_ORIGINS?: string;
+
   // ── AWS S3 (프로필/앨범 이미지 업로드) ──
   @IsOptional()
   @IsString()
