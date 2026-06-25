@@ -18,6 +18,19 @@ import {
 /** users.username VarChar(15) — provider 닉네임이 길 수 있으므로 안전하게 자른다 */
 const MAX_USERNAME_LENGTH = 15;
 
+/** provider 닉네임 미제공 시 사용할 기본 username (provider 불명 시 fallback) */
+const DEFAULT_USERNAME = '사용자';
+
+/**
+ * provider 별 기본 username — provider 응답에 닉네임이 없을 때 대체값.
+ * 매핑이 없는 provider(LOCAL 등)는 DEFAULT_USERNAME 으로 fallback.
+ */
+const DEFAULT_USERNAME_BY_PROVIDER: Partial<Record<OAuth2Provider, string>> = {
+  [OAuth2Provider.GOOGLE]: '구글사용자',
+  [OAuth2Provider.KAKAO]: '카카오사용자',
+  [OAuth2Provider.NAVER]: '네이버사용자',
+};
+
 /**
  * 소셜 로그인 처리 서비스 (원본 OAuth2AuthFacade 이식).
  * provider 클라이언트로 userinfo 를 받아 사용자 조회/생성 후 우리 서비스 JWT 를 발급한다.
@@ -175,15 +188,6 @@ export class OAuth2Service {
   }
 
   private providerLabel(provider: OAuth2Provider): string {
-    switch (provider) {
-      case OAuth2Provider.GOOGLE:
-        return '구글사용자';
-      case OAuth2Provider.KAKAO:
-        return '카카오사용자';
-      case OAuth2Provider.NAVER:
-        return '네이버사용자';
-      default:
-        return '사용자';
-    }
+    return DEFAULT_USERNAME_BY_PROVIDER[provider] ?? DEFAULT_USERNAME;
   }
 }

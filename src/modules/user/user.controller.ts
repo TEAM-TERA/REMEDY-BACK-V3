@@ -36,6 +36,9 @@ import {
 } from './dto/user-profile.dto';
 import { UserService } from './user.service';
 
+/** 프로필 이미지 업로드 최대 5MB */
+const PROFILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
 @ApiTags('users')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -75,7 +78,7 @@ export class UserController {
       new ParseFilePipe({
         // 필수 + 5MB 이하 + 이미지 MIME 화이트리스트
         validators: [
-          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
+          new MaxFileSizeValidator({ maxSize: PROFILE_IMAGE_MAX_BYTES }),
           new FileTypeValidator({ fileType: /^image\/(jpe?g|png|webp|gif)$/ }),
         ],
       }),

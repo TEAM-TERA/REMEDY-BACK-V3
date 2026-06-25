@@ -1,44 +1,14 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
-import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { LikeModule } from '../src/modules/like/like.module';
-import { truncateAll } from './utils/test-app';
+import { createTestApp, registerAndLogin, truncateAll } from './utils/test-app';
 
 /**
  * Like 도메인 E2E.
  *
- * 참고: 현 시점 src/app.module.ts 가 LikeModule 을 아직 import 하지 않으므로
- * (수정 금지 파일 + 도메인 병렬 개발 중), 본 스펙은 AppModule 과 함께 LikeModule 을
- * 직접 import 하는 테스트 전용 모듈로 앱을 부팅한다. app.module 에 LikeModule 이
- * 정식 등록되면 이 보강 import 는 제거 가능하다.
- *
  * dropping 은 dropping 모듈과 무관하게 PrismaService 로 직접 seed 한다
  * (location 컬럼은 DB 트리거가 채움).
  */
-async function createLikeTestApp(): Promise<INestApplication> {
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule, LikeModule],
-  }).compile();
-
-  const app = moduleRef.createNestApplication();
-  app.setGlobalPrefix('api/v1');
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: true },
-    }),
-  );
-  app.useGlobalFilters(new AllExceptionsFilter());
-
-  await app.init();
-  return app;
-}
-
 describe('Like E2E', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -64,25 +34,13 @@ describe('Like E2E', () => {
   let ownerUserId: number;
   let droppingId: string;
 
-  const registerAndLogin = async (u: typeof owner): Promise<string> => {
-    await request(app.getHttpServer())
-      .post(api('/auth/register'))
-      .send(u)
-      .expect(201);
-    const login = await request(app.getHttpServer())
-      .post(api('/auth/login'))
-      .send({ email: u.email, password: u.password })
-      .expect(200);
-    return login.body.accessToken as string;
-  };
-
   beforeAll(async () => {
-    app = await createLikeTestApp();
+    app = await createTestApp();
     prisma = app.get(PrismaService);
     await truncateAll(prisma);
 
-    ownerToken = await registerAndLogin(owner);
-    otherToken = await registerAndLogin(other);
+    ownerToken = await registerAndLogin(app, owner);
+    otherToken = await registerAndLogin(app, other);
 
     const ownerUser = await prisma.user.findUnique({
       where: { email: owner.email },

@@ -1,5 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
+import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/http-exception.filter';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -28,6 +29,25 @@ export async function createTestApp(
 
   await app.init();
   return app;
+}
+
+/**
+ * 사용자 객체로 회원가입(201) 후 로그인(200)하여 accessToken 을 반환한다.
+ * 경로는 전역 prefix(`/api/v1`)를 포함한다.
+ */
+export async function registerAndLogin(
+  app: INestApplication,
+  user: { email: string; password: string; [key: string]: unknown },
+): Promise<string> {
+  await request(app.getHttpServer())
+    .post('/api/v1/auth/register')
+    .send(user)
+    .expect(201);
+  const login = await request(app.getHttpServer())
+    .post('/api/v1/auth/login')
+    .send({ email: user.email, password: user.password })
+    .expect(200);
+  return login.body.accessToken as string;
 }
 
 /** 모든 테이블 데이터 초기화 (FK 안전하게 TRUNCATE ... CASCADE) */

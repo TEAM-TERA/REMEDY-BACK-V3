@@ -35,6 +35,7 @@ import {
   UserNotFoundException,
 } from '../../common/exceptions/not-found.exception';
 import { orThrow, assertOwnership } from '../../common/utils/guard';
+import { toInputJson } from '../../common/utils/prisma-json';
 
 /**
  * dropping 도메인 서비스 (원본 DroppingServiceFacade + DroppingService +
@@ -55,6 +56,9 @@ export class DroppingService {
 
   /** Serializable 트랜잭션 직렬화 충돌(P2034) 시 최대 재시도 횟수 */
   private static readonly SERIALIZABLE_MAX_ATTEMPTS = 3;
+
+  /** dropping 만료 기간(일). 원본과 동일하게 생성 시점 now + 3일 */
+  private static readonly DROPPING_EXPIRY_DAYS = 3;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -201,7 +205,9 @@ export class DroppingService {
     type: DroppingType,
     payload: MusicPayload | VotePayload | PlaylistPayload,
   ): Promise<string> {
-    const expiryDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    const expiryDate = new Date(
+      Date.now() + DroppingService.DROPPING_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+    );
 
     return this.runSerializable(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -223,7 +229,7 @@ export class DroppingService {
       const created = await tx.dropping.create({
         data: {
           droppingType: type,
-          payload: payload as unknown as Prisma.InputJsonValue,
+          payload: toInputJson(payload),
           userId,
           content: request.content ?? null,
           latitude: request.latitude,
@@ -316,17 +322,18 @@ export class DroppingService {
     rows: DroppingRow[],
     userId: number,
   ): Promise<DroppingResponse[]> {
-    // 1) 대표 songId 수집
-    const representativeSongIds: string[] = [];
-    for (const row of rows) {
-      representativeSongIds.push(this.representativeSongId(row));
-    }
-    const songMap = await this.songService.loadSongMap(representativeSongIds);
+    // 1) 행별 대표 songId 를 한 번만 계산(이중 호출 제거)
+    const rowsWithSongId = rows.map((row) => ({
+      row,
+      songId: this.representativeSongId(row),
+    }));
+    const songMap = await this.songService.loadSongMap(
+      rowsWithSongId.map(({ songId }) => songId),
+    );
 
     // 2) 동기 변환
-    return rows.map((row) => {
+    return rowsWithSongId.map(({ row, songId }) => {
       const isMyDropping = row.userId === userId;
-      const songId = this.representativeSongId(row);
       const song = songMap.get(songId)!;
       switch (row.droppingType) {
         case DroppingType.MUSIC:
@@ -490,22 +497,16 @@ export class DroppingService {
       Object.keys(payload.optionVotes),
     );
 
+    // optionVotes 삽입순(Object.entries)을 그대로 유지하며 단일 패스로
+    // 옵션 목록·총 투표수·내가 투표한 옵션을 함께 누적한다.
     const options: VoteOptionInfo[] = [];
     let totalVotes = 0;
     let userVotedOption: string | null = null;
 
     for (const [songId, voters] of Object.entries(payload.optionVotes)) {
-      const song = songMap.get(songId)!;
-      const voteCount = voters.length;
-      totalVotes += voteCount;
-      options.push({
-        songId,
-        albumImagePath: song.albumImagePath,
-        title: song.title,
-        artist: song.artist,
-        voteCount,
-        playLinks: buildPlayLinks(song),
-      });
+      options.push(this.toVoteOptionInfo(songId, voters, songMap));
+      totalVotes += voters.length;
+      // 같은 유저가 여러 옵션에 있으면 마지막 옵션이 채택됨(원본 동작 보존).
       if (voters.includes(userId)) {
         userVotedOption = songId;
       }
@@ -524,6 +525,23 @@ export class DroppingService {
       createdAt: dropping.createdAt,
       totalVotes,
       userVotedOption,
+    };
+  }
+
+  /** VOTE 옵션 1건의 응답 정보 구성(투표수는 voters 길이). songMap 은 옵션 존재 보장. */
+  private toVoteOptionInfo(
+    songId: string,
+    voters: number[],
+    songMap: Map<string, Song>,
+  ): VoteOptionInfo {
+    const song = songMap.get(songId)!;
+    return {
+      songId,
+      albumImagePath: song.albumImagePath,
+      title: song.title,
+      artist: song.artist,
+      voteCount: voters.length,
+      playLinks: buildPlayLinks(song),
     };
   }
 
@@ -605,7 +623,7 @@ export class DroppingService {
 
       await tx.dropping.update({
         where: { id: droppingId },
-        data: { payload: payload as unknown as Prisma.InputJsonValue },
+        data: { payload: toInputJson(payload) },
       });
     });
   }
@@ -623,7 +641,7 @@ export class DroppingService {
 
       await tx.dropping.update({
         where: { id: droppingId },
-        data: { payload: payload as unknown as Prisma.InputJsonValue },
+        data: { payload: toInputJson(payload) },
       });
     });
   }

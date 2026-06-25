@@ -2,6 +2,7 @@ import { Injectable, Logger, MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { toInputJson } from '../../common/utils/prisma-json';
 import { NotificationEmitter } from './notification.emitter';
 import {
   MarkAllReadResponse,
@@ -123,7 +124,7 @@ export class NotificationService {
         recipientId: input.recipientId,
         actorId: input.actorId,
         droppingId: input.droppingId,
-        payload: input.payload as unknown as Prisma.InputJsonValue,
+        payload: toInputJson(input.payload),
       },
     });
 
