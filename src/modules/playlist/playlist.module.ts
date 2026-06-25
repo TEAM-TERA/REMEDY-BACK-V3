@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { SongModule } from '../song/song.module';
 import { PlaylistController } from './playlist.controller';
 import { PlaylistService } from './playlist.service';
 
@@ -9,7 +10,7 @@ import { PlaylistService } from './playlist.service';
  * - PrismaService 는 전역(PrismaModule @Global)이라 별도 import 불필요.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, SongModule],
   controllers: [PlaylistController],
   providers: [PlaylistService],
   exports: [PlaylistService],

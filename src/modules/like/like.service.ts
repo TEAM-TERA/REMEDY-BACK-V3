@@ -8,6 +8,7 @@ import {
   LikeToggleResponse,
 } from './dto/like-response.dto';
 import { DroppingNotFoundException } from '../../common/exceptions/not-found.exception';
+import { orThrow } from '../../common/utils/guard';
 
 @Injectable()
 export class LikeService {
@@ -124,12 +125,12 @@ export class LikeService {
 
   /** dropping 존재 검증 (없으면 DroppingNotFoundException) */
   private async assertDroppingExists(droppingId: string): Promise<void> {
-    const dropping = await this.prisma.dropping.findUnique({
-      where: { id: droppingId },
-      select: { id: true },
-    });
-    if (!dropping) {
-      throw new DroppingNotFoundException();
-    }
+    orThrow(
+      await this.prisma.dropping.findUnique({
+        where: { id: droppingId },
+        select: { id: true },
+      }),
+      () => new DroppingNotFoundException(),
+    );
   }
 }

@@ -12,6 +12,7 @@ import {
   CommentNotFoundException,
 } from './exceptions/comment.exceptions';
 import { DroppingNotFoundException } from '../../common/exceptions/not-found.exception';
+import { orThrow, assertOwnership } from '../../common/utils/guard';
 
 @Injectable()
 export class CommentService {
@@ -135,20 +136,19 @@ export class CommentService {
 
   /** 댓글 조회 후 없으면 예외 (원본 findById → CommentNotFoundException) */
   private async findCommentOrThrow(commentId: number): Promise<Comment> {
-    const comment = await this.prisma.comment.findUnique({
-      where: { id: commentId },
-    });
-    if (!comment) {
-      throw new CommentNotFoundException();
-    }
-    return comment;
+    return orThrow(
+      await this.prisma.comment.findUnique({ where: { id: commentId } }),
+      () => new CommentNotFoundException(),
+    );
   }
 
   /** 소유자 검증 (원본 validateCommentOwnership) */
   private validateCommentOwnership(userId: number, comment: Comment): void {
-    if (comment.userId !== userId) {
-      throw new CommentAccessDeniedException();
-    }
+    assertOwnership(
+      comment.userId,
+      userId,
+      () => new CommentAccessDeniedException(),
+    );
   }
 
   /**
@@ -158,14 +158,13 @@ export class CommentService {
   private async findDroppingOrThrow(
     droppingId: string,
   ): Promise<{ id: string; userId: number }> {
-    const dropping = await this.prisma.dropping.findUnique({
-      where: { id: droppingId },
-      select: { id: true, userId: true },
-    });
-    if (!dropping) {
-      throw new DroppingNotFoundException();
-    }
-    return dropping;
+    return orThrow(
+      await this.prisma.dropping.findUnique({
+        where: { id: droppingId },
+        select: { id: true, userId: true },
+      }),
+      () => new DroppingNotFoundException(),
+    );
   }
 
   /** 드랍핑 존재 여부 */
