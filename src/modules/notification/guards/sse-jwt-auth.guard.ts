@@ -5,10 +5,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Status } from '@prisma/client';
 import type { Request } from 'express';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AuthUser } from '../../../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../../auth/strategies/jwt.strategy';
+import { WithdrawnUserException } from '../../user/exceptions/user.exceptions';
 
 /**
  * SSE 전용 인증 가드.
@@ -53,6 +55,10 @@ export class SseJwtAuthGuard implements CanActivate {
     });
     if (!user) {
       throw new UnauthorizedException('사용자를 찾을 수 없습니다.');
+    }
+    // 탈퇴 사용자는 SSE 구독도 거부(JwtStrategy 와 동일 정책)
+    if (user.status === Status.WITHDRAWAL) {
+      throw new WithdrawnUserException();
     }
 
     // CurrentUser 데코레이터가 읽는 위치에 주입(passport JwtStrategy 와 동일)
