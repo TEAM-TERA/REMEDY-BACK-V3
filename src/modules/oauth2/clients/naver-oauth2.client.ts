@@ -5,6 +5,7 @@ import { OAuth2Provider } from '@prisma/client';
 import { NaverOAuth2Client } from './oauth2-client';
 import { OAuth2UserInfo } from '../domain/oauth2-user-info';
 import { OAuth2ProviderRequestFailedException } from '../exceptions/oauth2.exceptions';
+import { asObject, asString, parseBirthDate } from './oauth2-parse.util';
 
 /**
  * Naver userinfo 클라이언트 (원본 NaverAuthClient/NaverAuthService + NaverOAuth2UserInfo 이식).
@@ -22,14 +23,14 @@ export class NaverOAuth2ClientImpl extends NaverOAuth2Client {
 
   async getUserInfo(accessToken: string): Promise<OAuth2UserInfo> {
     const attributes = await this.fetch(accessToken);
-    const response = this.asObject(attributes['response']);
+    const response = asObject(attributes['response']);
 
     return {
       provider: OAuth2Provider.NAVER,
-      providerId: this.asString(response?.['id']) ?? '',
-      email: this.asString(response?.['email']),
-      name: this.asString(response?.['nickname']),
-      profileImage: this.asString(response?.['profile_image']),
+      providerId: asString(response?.['id']) ?? '',
+      email: asString(response?.['email']),
+      name: asString(response?.['nickname']),
+      profileImage: asString(response?.['profile_image']),
       birthDate: this.parseBirthDate(response),
       gender: this.parseGender(response),
     };
@@ -64,29 +65,21 @@ export class NaverOAuth2ClientImpl extends NaverOAuth2Client {
     if (!response) {
       return null;
     }
-    const birthday = this.asString(response['birthday']); // MM-DD
-    const birthyear = this.asString(response['birthyear']); // YYYY
-    if (
-      birthday !== null &&
-      birthyear !== null &&
-      birthday.length === 5 &&
-      birthyear.length === 4
-    ) {
-      const parts = birthday.split('-');
-      if (parts.length === 2) {
-        const year = Number.parseInt(birthyear, 10);
-        const month = Number.parseInt(parts[0], 10);
-        const day = Number.parseInt(parts[1], 10);
-        if (
-          Number.isInteger(year) &&
-          Number.isInteger(month) &&
-          Number.isInteger(day)
-        ) {
-          return new Date(Date.UTC(year, month - 1, day));
+    // naver birthday 포맷은 MM-DD(5자리) — 공통 코어에 추출 규칙만 주입한다.
+    return parseBirthDate(
+      response['birthday'],
+      response['birthyear'],
+      (birthday) => {
+        if (birthday.length !== 5) {
+          return null;
         }
-      }
-    }
-    return null;
+        const parts = birthday.split('-');
+        if (parts.length !== 2) {
+          return null;
+        }
+        return { month: parts[0], day: parts[1] };
+      },
+    );
   }
 
   /**
@@ -99,20 +92,10 @@ export class NaverOAuth2ClientImpl extends NaverOAuth2Client {
     if (!response) {
       return null;
     }
-    const gender = this.asString(response['gender']);
+    const gender = asString(response['gender']);
     if (gender === null) {
       return null;
     }
     return gender.toUpperCase() === 'M';
-  }
-
-  private asObject(value: unknown): Record<string, unknown> | null {
-    return typeof value === 'object' && value !== null
-      ? (value as Record<string, unknown>)
-      : null;
-  }
-
-  private asString(value: unknown): string | null {
-    return typeof value === 'string' && value.length > 0 ? value : null;
   }
 }

@@ -1,20 +1,14 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
 import { OAuth2Provider } from '@prisma/client';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
-import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { OAuth2Module } from '../src/modules/oauth2/oauth2.module';
 import { GoogleOAuth2Client } from '../src/modules/oauth2/clients/oauth2-client';
 import { OAuth2UserInfo } from '../src/modules/oauth2/domain/oauth2-user-info';
-import { truncateAll } from './utils/test-app';
+import { createTestApp, truncateAll } from './utils/test-app';
 
 /**
  * OAuth2(소셜 로그인) E2E.
  *
- * AppModule 은 OAuth2Module 을 포함하지 않으므로(앱 부트스트랩 파일 수정 금지),
- * 이 스펙은 직접 TestingModule 을 빌드하면서 OAuth2Module 을 함께 import 하고
  * Google provider 클라이언트를 목으로 override 한다.
  * 전역 설정(prefix/ValidationPipe/예외필터)은 test/utils/test-app.ts(=main.ts)와 동일하게 적용.
  *
@@ -44,26 +38,9 @@ describe('OAuth2 E2E (google)', () => {
   };
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule, OAuth2Module],
-    })
-      .overrideProvider(GoogleOAuth2Client)
-      .useValue(googleClientMock)
-      .compile();
-
-    app = moduleRef.createNestApplication();
-    app.setGlobalPrefix('api/v1');
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-        transformOptions: { enableImplicitConversion: true },
-      }),
+    app = await createTestApp((builder) =>
+      builder.overrideProvider(GoogleOAuth2Client).useValue(googleClientMock),
     );
-    app.useGlobalFilters(new AllExceptionsFilter());
-
-    await app.init();
 
     prisma = app.get(PrismaService);
     await truncateAll(prisma);

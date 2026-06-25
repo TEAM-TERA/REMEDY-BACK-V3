@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import type { AddressInfo } from 'net';
 import request from 'supertest';
-import { createTestApp, truncateAll } from './utils/test-app';
+import { createTestApp, registerAndLogin, truncateAll } from './utils/test-app';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 /**
@@ -37,25 +37,13 @@ describe('Notification E2E', () => {
 
   const songId = 'noti-song';
 
-  async function registerAndLogin(u: typeof owner): Promise<string> {
-    await request(app.getHttpServer())
-      .post(api('/auth/register'))
-      .send(u)
-      .expect(201);
-    const login = await request(app.getHttpServer())
-      .post(api('/auth/login'))
-      .send({ email: u.email, password: u.password })
-      .expect(200);
-    return login.body.accessToken as string;
-  }
-
   beforeAll(async () => {
     app = await createTestApp();
     prisma = app.get(PrismaService);
     await truncateAll(prisma);
 
-    ownerToken = await registerAndLogin(owner);
-    actorToken = await registerAndLogin(actor);
+    ownerToken = await registerAndLogin(app, owner);
+    actorToken = await registerAndLogin(app, actor);
     ownerId = (await prisma.user.findUnique({ where: { email: owner.email } }))!
       .id;
 

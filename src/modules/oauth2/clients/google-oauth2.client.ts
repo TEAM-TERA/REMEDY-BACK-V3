@@ -5,6 +5,7 @@ import { OAuth2Provider } from '@prisma/client';
 import { GoogleOAuth2Client } from './oauth2-client';
 import { OAuth2UserInfo } from '../domain/oauth2-user-info';
 import { OAuth2ProviderRequestFailedException } from '../exceptions/oauth2.exceptions';
+import { asString } from './oauth2-parse.util';
 
 /**
  * Google userinfo 클라이언트 (원본 GoogleAuthClient/GoogleAuthService + GoogleOAuth2UserInfo 이식).
@@ -26,16 +27,16 @@ export class GoogleOAuth2ClientImpl extends GoogleOAuth2Client {
 
     // 원본 GoogleOAuth2UserInfo 파싱 규칙 이식
     // given_name(이름)을 우선 사용, 없으면 name(전체 이름) 사용
-    const givenName = this.asString(attributes['given_name']);
-    const name = givenName ?? this.asString(attributes['name']);
+    const givenName = asString(attributes['given_name']);
+    const name = givenName ?? asString(attributes['name']);
 
     return {
       provider: OAuth2Provider.GOOGLE,
       // 원본은 providerId 로 "sub" 를 읽는다 (OIDC userinfo 기준)
-      providerId: this.asString(attributes['sub']) ?? '',
-      email: this.asString(attributes['email']),
+      providerId: asString(attributes['sub']) ?? '',
+      email: asString(attributes['email']),
       name,
-      profileImage: this.asString(attributes['picture']),
+      profileImage: asString(attributes['picture']),
       // Google 은 기본 profile scope 에서 생년월일/성별을 제공하지 않음
       birthDate: null,
       gender: null,
@@ -55,9 +56,5 @@ export class GoogleOAuth2ClientImpl extends GoogleOAuth2Client {
     } catch {
       throw new OAuth2ProviderRequestFailedException();
     }
-  }
-
-  private asString(value: unknown): string | null {
-    return typeof value === 'string' && value.length > 0 ? value : null;
   }
 }

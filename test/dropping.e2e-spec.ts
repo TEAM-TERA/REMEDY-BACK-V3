@@ -1,20 +1,12 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
-import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { DroppingModule } from '../src/modules/dropping/dropping.module';
-import { truncateAll } from './utils/test-app';
+import { createTestApp, registerAndLogin, truncateAll } from './utils/test-app';
 import { SpotifyMusicClient } from '../src/modules/music-source/clients/spotify-music.client';
 import { YouTubeMusicResolver } from '../src/modules/music-source/clients/youtube-music.resolver';
 
 /**
  * Dropping 도메인 E2E (이 서비스의 핵심).
- *
- * 참고: 현 시점 src/app.module.ts 가 DroppingModule 을 아직 import 하지 않으므로
- * (수정 금지 파일 + 통합 담당이 와이어링) 본 스펙은 AppModule 과 함께 DroppingModule 을
- * 직접 import 하는 테스트 전용 모듈로 앱을 부팅한다.
  *
  * 검증:
  *  - MUSIC 생성 → 근처 검색 포함 → 단건 조회 → soft delete → 삭제 후 검색 미포함
@@ -26,38 +18,10 @@ import { YouTubeMusicResolver } from '../src/modules/music-source/clients/youtub
  *  - 같은 좌표: 1m 중복 충돌 유발
  *  - 근처: 경도 +0.0005도(약 44m) → 수십 m, 검색 distance 1km 면 충분히 포함
  *  - 먼 곳: lat/lng 각각 +0.5도(약 50km+) → 1km 검색에 미포함
+ *
+ * 곡은 prisma 로 시드(캐시 hit)하므로 외부 소스는 호출되지 않지만,
+ * 실 클라이언트 의존을 끊기 위해 안전한 mock 을 주입한다(미시드 곡 참조 시 결정적으로 미발견).
  */
-async function createDroppingTestApp(): Promise<INestApplication> {
-  // 곡은 prisma 로 시드(캐시 hit)하므로 외부 소스는 호출되지 않지만,
-  // 실 클라이언트 의존을 끊기 위해 안전한 mock 을 주입한다(미시드 곡 참조 시 결정적으로 미발견).
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule, DroppingModule],
-  })
-    .overrideProvider(SpotifyMusicClient)
-    .useValue({
-      search: () => Promise.resolve([]),
-      getTracks: () => Promise.resolve([]),
-    })
-    .overrideProvider(YouTubeMusicResolver)
-    .useValue({ resolve: () => Promise.resolve(null) })
-    .compile();
-
-  const app = moduleRef.createNestApplication();
-  app.setGlobalPrefix('api/v1');
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: true },
-    }),
-  );
-  app.useGlobalFilters(new AllExceptionsFilter());
-
-  await app.init();
-  return app;
-}
-
 describe('Dropping E2E', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -108,25 +72,22 @@ describe('Dropping E2E', () => {
     },
   ];
 
-  const registerAndLogin = async (u: typeof owner): Promise<string> => {
-    await request(app.getHttpServer())
-      .post(api('/auth/register'))
-      .send(u)
-      .expect(201);
-    const login = await request(app.getHttpServer())
-      .post(api('/auth/login'))
-      .send({ email: u.email, password: u.password })
-      .expect(200);
-    return login.body.accessToken as string;
-  };
-
   beforeAll(async () => {
-    app = await createDroppingTestApp();
+    app = await createTestApp((builder) =>
+      builder
+        .overrideProvider(SpotifyMusicClient)
+        .useValue({
+          search: () => Promise.resolve([]),
+          getTracks: () => Promise.resolve([]),
+        })
+        .overrideProvider(YouTubeMusicResolver)
+        .useValue({ resolve: () => Promise.resolve(null) }),
+    );
     prisma = app.get(PrismaService);
     await truncateAll(prisma);
 
-    ownerToken = await registerAndLogin(owner);
-    otherToken = await registerAndLogin(other);
+    ownerToken = await registerAndLogin(app, owner);
+    otherToken = await registerAndLogin(app, other);
 
     await prisma.song.createMany({ data: songs });
   });

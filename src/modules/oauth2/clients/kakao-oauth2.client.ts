@@ -5,6 +5,7 @@ import { OAuth2Provider } from '@prisma/client';
 import { KakaoOAuth2Client } from './oauth2-client';
 import { OAuth2UserInfo } from '../domain/oauth2-user-info';
 import { OAuth2ProviderRequestFailedException } from '../exceptions/oauth2.exceptions';
+import { asObject, asString, parseBirthDate } from './oauth2-parse.util';
 
 /**
  * Kakao userinfo 클라이언트 (원본 KakaoAuthClient/KakaoAuthService + KakaoOAuth2UserInfo 이식).
@@ -22,16 +23,16 @@ export class KakaoOAuth2ClientImpl extends KakaoOAuth2Client {
   async getUserInfo(accessToken: string): Promise<OAuth2UserInfo> {
     const attributes = await this.fetch(accessToken);
 
-    const kakaoAccount = this.asObject(attributes['kakao_account']);
-    const properties = this.asObject(attributes['properties']);
+    const kakaoAccount = asObject(attributes['kakao_account']);
+    const properties = asObject(attributes['properties']);
 
     return {
       provider: OAuth2Provider.KAKAO,
       // 원본: String.valueOf(attributes.get("id"))
       providerId: this.toIdString(attributes['id']),
-      email: this.asString(kakaoAccount?.['email']),
-      name: this.asString(properties?.['nickname']),
-      profileImage: this.asString(properties?.['profile_image']),
+      email: asString(kakaoAccount?.['email']),
+      name: asString(properties?.['nickname']),
+      profileImage: asString(properties?.['profile_image']),
       birthDate: this.parseBirthDate(kakaoAccount),
       gender: this.parseGender(kakaoAccount),
     };
@@ -66,27 +67,18 @@ export class KakaoOAuth2ClientImpl extends KakaoOAuth2Client {
     if (!kakaoAccount) {
       return null;
     }
-    const birthday = this.asString(kakaoAccount['birthday']); // MMDD
-    const birthyear = this.asString(kakaoAccount['birthyear']); // YYYY
-    if (
-      birthday !== null &&
-      birthyear !== null &&
-      birthday.length === 4 &&
-      birthyear.length === 4
-    ) {
-      const year = Number.parseInt(birthyear, 10);
-      const month = Number.parseInt(birthday.substring(0, 2), 10);
-      const day = Number.parseInt(birthday.substring(2, 4), 10);
-      if (
-        Number.isInteger(year) &&
-        Number.isInteger(month) &&
-        Number.isInteger(day)
-      ) {
-        // UTC 자정으로 생성 (Prisma @db.Date 매핑)
-        return new Date(Date.UTC(year, month - 1, day));
-      }
-    }
-    return null;
+    // kakao birthday 포맷은 MMDD(4자리) — 공통 코어에 추출 규칙만 주입한다.
+    return parseBirthDate(
+      kakaoAccount['birthday'],
+      kakaoAccount['birthyear'],
+      (birthday) =>
+        birthday.length === 4
+          ? {
+              month: birthday.substring(0, 2),
+              day: birthday.substring(2, 4),
+            }
+          : null,
+    );
   }
 
   /**
@@ -99,21 +91,11 @@ export class KakaoOAuth2ClientImpl extends KakaoOAuth2Client {
     if (!kakaoAccount) {
       return null;
     }
-    const gender = this.asString(kakaoAccount['gender']);
+    const gender = asString(kakaoAccount['gender']);
     if (gender === null) {
       return null;
     }
     return gender.toLowerCase() === 'male';
-  }
-
-  private asObject(value: unknown): Record<string, unknown> | null {
-    return typeof value === 'object' && value !== null
-      ? (value as Record<string, unknown>)
-      : null;
-  }
-
-  private asString(value: unknown): string | null {
-    return typeof value === 'string' && value.length > 0 ? value : null;
   }
 
   private toIdString(value: unknown): string {
