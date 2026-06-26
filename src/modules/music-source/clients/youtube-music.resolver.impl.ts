@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { YouTubeMatch, YouTubeMusicResolver } from './youtube-music.resolver';
 import { MusicSourceUnavailableException } from '../exceptions/music-source.exceptions';
+import { retryTransient } from './retry';
 
 interface YouTubeSearchItem {
   id?: { videoId?: string };
@@ -48,20 +49,30 @@ export class YouTubeMusicResolverImpl extends YouTubeMusicResolver {
 
     let data: YouTubeSearchResponse;
     try {
-      const res = await firstValueFrom(
-        this.http.get<YouTubeSearchResponse>(
-          YouTubeMusicResolverImpl.SEARCH_URL,
-          {
-            params: {
-              part: 'snippet',
-              q: query,
-              type: 'video',
-              videoCategoryId: '10', // Music
-              maxResults: 1,
-              key: apiKey,
-            },
-          },
-        ),
+      // 일시적 오류(429 쿼터/5xx/네트워크/타임아웃)만 백오프 재시도, 그 외는 즉시 throw.
+      const res = await retryTransient(
+        () =>
+          firstValueFrom(
+            this.http.get<YouTubeSearchResponse>(
+              YouTubeMusicResolverImpl.SEARCH_URL,
+              {
+                params: {
+                  part: 'snippet',
+                  q: query,
+                  type: 'video',
+                  videoCategoryId: '10', // Music
+                  maxResults: 1,
+                  key: apiKey,
+                },
+              },
+            ),
+          ),
+        {
+          onRetry: (attempt, delayMs) =>
+            this.logger.warn(
+              `YouTube 매칭 재시도 ${attempt} (${delayMs}ms): "${query}"`,
+            ),
+        },
       );
       data = res.data;
     } catch (error) {

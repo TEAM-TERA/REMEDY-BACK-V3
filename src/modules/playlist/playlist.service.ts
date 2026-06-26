@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { Playlist, Song } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -22,6 +23,7 @@ import {
   SongNotFoundException,
 } from '../../common/exceptions/not-found.exception';
 import { orThrow, assertOwnership } from '../../common/utils/guard';
+import { runSerializable } from '../../common/utils/transaction';
 import { SongService } from '../song/song.service';
 
 @Injectable()
@@ -104,47 +106,66 @@ export class PlaylistService {
   /**
    * 곡 추가 (원본 addSongToPlaylist).
    * 소유자 검증 → 곡 존재 검증 → 중복 검증 후 추가. 추가되는 곡 순서는 요청 순서를 유지한다.
+   *
+   * songIds 는 text[] 배열이라 DB 유니크 제약이 없다. read(findUnique)→검증→write(update) 를
+   * Serializable 트랜잭션으로 원자화해, 동시 요청이 같은 songIds 를 읽고 각자 검증을 통과한 뒤
+   * 곡을 중복 입력하거나 lost update 를 일으키는 경쟁 조건을 차단한다.
+   * 검증 순서/던지는 예외(PlaylistNotFound→Unauthorized→SongNotFound→SongAlreadyInPlaylist)는 보존한다.
    */
   async addSongToPlaylist(
     playlistId: string,
     userId: number,
     request: PlaylistSongAddRequest,
   ): Promise<void> {
-    const playlist = await this.findPlaylistOrThrow(playlistId);
-    this.validatePlaylistOwner(playlist, userId);
+    await runSerializable(this.prisma, async (tx) => {
+      const playlist = orThrow(
+        await tx.playlist.findUnique({ where: { id: playlistId } }),
+        () => new PlaylistNotFoundException(),
+      );
+      this.validatePlaylistOwner(playlist, userId);
 
-    const requestedSongIds = request.songIds;
-    await this.validateSongsExist(requestedSongIds);
-    this.validateNoDuplicateSongs(playlist, requestedSongIds);
+      const requestedSongIds = request.songIds;
+      await this.validateSongsExist(requestedSongIds, tx);
+      this.validateNoDuplicateSongs(playlist, requestedSongIds);
 
-    // 선행 검증(validateSongsExist: 요청 내 중복 거절, validateNoDuplicateSongs: 기존과 중복 거절)을
-    // 통과했으므로 요청 곡은 모두 신규이며 서로 유일하다 → 기존 순서 뒤에 그대로 덧붙인다.
-    const merged = [...playlist.songIds, ...requestedSongIds];
+      // 선행 검증(validateSongsExist: 요청 내 중복 거절, validateNoDuplicateSongs: 기존과 중복 거절)을
+      // 통과했으므로 요청 곡은 모두 신규이며 서로 유일하다 → 기존 순서 뒤에 그대로 덧붙인다.
+      const merged = [...playlist.songIds, ...requestedSongIds];
 
-    await this.prisma.playlist.update({
-      where: { id: playlistId },
-      data: { songIds: merged },
+      await tx.playlist.update({
+        where: { id: playlistId },
+        data: { songIds: merged },
+      });
     });
   }
 
-  /** 곡 제거 (원본 removeSongFromPlaylist, 소유자 검증) */
+  /**
+   * 곡 제거 (원본 removeSongFromPlaylist, 소유자 검증).
+   * read→검증→write 를 Serializable 트랜잭션으로 원자화해 동시 제거의 lost update 를 방지한다.
+   * 검증 순서/던지는 예외(PlaylistNotFound→Unauthorized→SongNotInPlaylist)는 보존한다.
+   */
   async removeSongFromPlaylist(
     playlistId: string,
     songId: string,
     userId: number,
   ): Promise<void> {
-    const playlist = await this.findPlaylistOrThrow(playlistId);
-    this.validatePlaylistOwner(playlist, userId);
+    await runSerializable(this.prisma, async (tx) => {
+      const playlist = orThrow(
+        await tx.playlist.findUnique({ where: { id: playlistId } }),
+        () => new PlaylistNotFoundException(),
+      );
+      this.validatePlaylistOwner(playlist, userId);
 
-    if (!playlist.songIds.includes(songId)) {
-      throw new SongNotInPlaylistException();
-    }
+      if (!playlist.songIds.includes(songId)) {
+        throw new SongNotInPlaylistException();
+      }
 
-    const remaining = playlist.songIds.filter((id) => id !== songId);
+      const remaining = playlist.songIds.filter((id) => id !== songId);
 
-    await this.prisma.playlist.update({
-      where: { id: playlistId },
-      data: { songIds: remaining },
+      await tx.playlist.update({
+        where: { id: playlistId },
+        data: { songIds: remaining },
+      });
     });
   }
 
@@ -183,8 +204,11 @@ export class PlaylistService {
    * 곡 존재 검증 (원본 validateSongsExist).
    * 원본은 존재 곡 수 != 요청 곡 수 이면 거절하므로, 요청 내 중복 id 도 거절된다(원본 동작 유지).
    */
-  private async validateSongsExist(songIds: string[]): Promise<void> {
-    const count = await this.prisma.song.count({
+  private async validateSongsExist(
+    songIds: string[],
+    client: Prisma.TransactionClient = this.prisma,
+  ): Promise<void> {
+    const count = await client.song.count({
       where: { id: { in: songIds } },
     });
     if (count !== songIds.length) {
