@@ -27,6 +27,16 @@ class EnvironmentVariables {
   @IsInt()
   PORT: number = 3000;
 
+  // 실행 환경. 'production' 이면 JSON 로그, 그 외에는 사람이 읽기 좋은 pretty 로그.
+  @IsOptional()
+  @IsString()
+  NODE_ENV?: string;
+
+  // 로그 레벨(pino): trace|debug|info|warn|error|fatal|silent. 미설정 시 환경별 기본값.
+  @IsOptional()
+  @IsString()
+  LOG_LEVEL?: string;
+
   // 허용할 CORS origin 목록(쉼표 구분). 미설정 시 전체 허용(로컬/개발)
   @IsOptional()
   @IsString()

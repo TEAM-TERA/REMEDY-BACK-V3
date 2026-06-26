@@ -1,6 +1,11 @@
-import { Injectable, Logger, MessageEvent } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  MessageEvent,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { Observable, Subject, interval, merge, of } from 'rxjs';
-import { finalize, map } from 'rxjs/operators';
+import { finalize, map, takeUntil } from 'rxjs/operators';
 
 /**
  * SSE 연결 레지스트리 (원본 SseEmitterRepository + SseEmitterManager 이식).
@@ -13,13 +18,16 @@ import { finalize, map } from 'rxjs/operators';
  * 수평 확장 시에는 Redis Pub/Sub 등 외부 브로커로 팬아웃해야 한다(후속 과제).
  */
 @Injectable()
-export class NotificationEmitter {
+export class NotificationEmitter implements OnModuleDestroy {
   private readonly logger = new Logger(NotificationEmitter.name);
 
   /** 연결 유지용 heartbeat 주기(ms). 프록시의 idle 타임아웃으로 끊기는 것을 방지 */
   private static readonly HEARTBEAT_INTERVAL_MS = 30_000;
 
   private readonly streams = new Map<number, Set<Subject<MessageEvent>>>();
+
+  /** 종료 신호. next 되면 모든 활성 SSE 스트림이 takeUntil 로 완료된다. */
+  private readonly shutdown$ = new Subject<void>();
 
   /**
    * 사용자의 SSE 스트림을 생성한다.
@@ -51,6 +59,9 @@ export class NotificationEmitter {
     // merge 로 합쳐진 heartbeat interval 도 RxJS 가 함께 정리한다(타이머 누수 없음).
     // finalize 는 추가로 레지스트리(Map/Set)에서 해당 연결을 제거한다.
     return merge(connect$, subject.asObservable(), heartbeat$).pipe(
+      // 종료 훅(onModuleDestroy)에서 shutdown$ 가 흐르면 스트림을 완료해 연결을 닫는다.
+      // (heartbeat interval 은 스스로 끝나지 않으므로 takeUntil 로 명시 종료해야 한다.)
+      takeUntil(this.shutdown$),
       finalize(() => {
         const current = this.streams.get(userId);
         if (current) {
@@ -94,5 +105,14 @@ export class NotificationEmitter {
   isConnected(userId: number): boolean {
     const set = this.streams.get(userId);
     return set !== undefined && set.size > 0;
+  }
+
+  /**
+   * 종료 훅: 열린 모든 SSE 스트림을 완료시켜 연결을 닫는다.
+   * 장수 연결(SSE)을 닫지 않으면 graceful shutdown 시 서버가 연결 종료를 기다리며 멈춘다.
+   */
+  onModuleDestroy(): void {
+    this.shutdown$.next();
+    this.shutdown$.complete();
   }
 }
