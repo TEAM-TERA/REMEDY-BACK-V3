@@ -14,9 +14,15 @@ import { Prisma, PrismaClient } from '@prisma/client';
 /** Serializable 직렬화 충돌(P2034) 시 최대 재시도 횟수 */
 const SERIALIZABLE_MAX_ATTEMPTS = 3;
 
+export interface RunSerializableOptions {
+  /** 직렬화 충돌로 재시도하기 직전 호출(호출부 로깅용). 동시쓰기 충돌 빈도를 관측 가능하게 한다. */
+  onRetry?: (attempt: number, error: unknown) => void;
+}
+
 export async function runSerializable<T>(
   prisma: PrismaClient,
   fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  opts: RunSerializableOptions = {},
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -29,6 +35,7 @@ export async function runSerializable<T>(
         error.code === 'P2034' &&
         attempt < SERIALIZABLE_MAX_ATTEMPTS
       ) {
+        opts.onRetry?.(attempt, error);
         continue;
       }
       throw error;

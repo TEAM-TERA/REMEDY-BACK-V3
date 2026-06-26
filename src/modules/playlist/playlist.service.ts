@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Playlist, Song } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -28,6 +28,8 @@ import { SongService } from '../song/song.service';
 
 @Injectable()
 export class PlaylistService {
+  private readonly logger = new Logger(PlaylistService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly songService: SongService,
@@ -117,26 +119,35 @@ export class PlaylistService {
     userId: number,
     request: PlaylistSongAddRequest,
   ): Promise<void> {
-    await runSerializable(this.prisma, async (tx) => {
-      const playlist = orThrow(
-        await tx.playlist.findUnique({ where: { id: playlistId } }),
-        () => new PlaylistNotFoundException(),
-      );
-      this.validatePlaylistOwner(playlist, userId);
+    await runSerializable(
+      this.prisma,
+      async (tx) => {
+        const playlist = orThrow(
+          await tx.playlist.findUnique({ where: { id: playlistId } }),
+          () => new PlaylistNotFoundException(),
+        );
+        this.validatePlaylistOwner(playlist, userId);
 
-      const requestedSongIds = request.songIds;
-      await this.validateSongsExist(requestedSongIds, tx);
-      this.validateNoDuplicateSongs(playlist, requestedSongIds);
+        const requestedSongIds = request.songIds;
+        await this.validateSongsExist(requestedSongIds, tx);
+        this.validateNoDuplicateSongs(playlist, requestedSongIds);
 
-      // 선행 검증(validateSongsExist: 요청 내 중복 거절, validateNoDuplicateSongs: 기존과 중복 거절)을
-      // 통과했으므로 요청 곡은 모두 신규이며 서로 유일하다 → 기존 순서 뒤에 그대로 덧붙인다.
-      const merged = [...playlist.songIds, ...requestedSongIds];
+        // 선행 검증(validateSongsExist: 요청 내 중복 거절, validateNoDuplicateSongs: 기존과 중복 거절)을
+        // 통과했으므로 요청 곡은 모두 신규이며 서로 유일하다 → 기존 순서 뒤에 그대로 덧붙인다.
+        const merged = [...playlist.songIds, ...requestedSongIds];
 
-      await tx.playlist.update({
-        where: { id: playlistId },
-        data: { songIds: merged },
-      });
-    });
+        await tx.playlist.update({
+          where: { id: playlistId },
+          data: { songIds: merged },
+        });
+      },
+      {
+        onRetry: (attempt) =>
+          this.logger.warn(
+            `플레이리스트 곡 추가 직렬화 충돌 재시도 ${attempt} - playlistId=${playlistId}`,
+          ),
+      },
+    );
   }
 
   /**
@@ -149,24 +160,33 @@ export class PlaylistService {
     songId: string,
     userId: number,
   ): Promise<void> {
-    await runSerializable(this.prisma, async (tx) => {
-      const playlist = orThrow(
-        await tx.playlist.findUnique({ where: { id: playlistId } }),
-        () => new PlaylistNotFoundException(),
-      );
-      this.validatePlaylistOwner(playlist, userId);
+    await runSerializable(
+      this.prisma,
+      async (tx) => {
+        const playlist = orThrow(
+          await tx.playlist.findUnique({ where: { id: playlistId } }),
+          () => new PlaylistNotFoundException(),
+        );
+        this.validatePlaylistOwner(playlist, userId);
 
-      if (!playlist.songIds.includes(songId)) {
-        throw new SongNotInPlaylistException();
-      }
+        if (!playlist.songIds.includes(songId)) {
+          throw new SongNotInPlaylistException();
+        }
 
-      const remaining = playlist.songIds.filter((id) => id !== songId);
+        const remaining = playlist.songIds.filter((id) => id !== songId);
 
-      await tx.playlist.update({
-        where: { id: playlistId },
-        data: { songIds: remaining },
-      });
-    });
+        await tx.playlist.update({
+          where: { id: playlistId },
+          data: { songIds: remaining },
+        });
+      },
+      {
+        onRetry: (attempt) =>
+          this.logger.warn(
+            `플레이리스트 곡 제거 직렬화 충돌 재시도 ${attempt} - playlistId=${playlistId}`,
+          ),
+      },
+    );
   }
 
   // ── 내부 헬퍼 ────────────────────────────────────────────────

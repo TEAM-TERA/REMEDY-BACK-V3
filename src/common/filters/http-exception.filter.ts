@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { BusinessException } from '../exceptions/business.exception';
+import { maskUrlSecrets } from '../utils/redact';
 
 interface ErrorBody {
   statusCode: number;
@@ -28,9 +29,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const { status, code, message } = this.resolve(exception);
 
+    // 쿼리로 받은 토큰(SSE ?token=) 이 로그·응답에 평문으로 남지 않도록 마스킹.
+    const path = maskUrlSecrets(request.url);
+
     if (status >= 500) {
       this.logger.error(
-        `${request.method} ${request.url} -> ${status}`,
+        `${request.method} ${path} -> ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
     }
@@ -40,7 +44,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       code,
       message,
       timestamp: new Date().toISOString(),
-      path: request.url,
+      path,
     };
 
     response.status(status).json(body);

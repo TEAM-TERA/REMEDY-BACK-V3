@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { LoggerModule } from 'nestjs-pino';
 import { stdSerializers } from 'pino';
+import { maskUrlSecrets } from '../utils/redact';
 
 /**
  * 구조화 로깅(JSON) + 요청 로깅 + 상관관계 ID 를 한 곳에서 설정한다(nestjs-pino).
@@ -23,8 +24,10 @@ const HEALTH_PATHS = ['/api/v1/health', '/api/v1/health/ready'];
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         const isProd = config.get<string>('NODE_ENV') === 'production';
-        const level =
-          config.get<string>('LOG_LEVEL') ?? (isProd ? 'info' : 'debug');
+        // LOG_LEVEL 이 빈 문자열("")로 들어오면 pino 가 부팅 시 throw 하므로(?? 는 ''를 못 거른다)
+        // truthy 검사로 미설정/빈값을 환경별 기본값으로 폴백한다.
+        const configuredLevel = config.get<string>('LOG_LEVEL');
+        const level = configuredLevel || (isProd ? 'info' : 'debug');
         return {
           pinoHttp: {
             level,
@@ -38,9 +41,17 @@ const HEALTH_PATHS = ['/api/v1/health', '/api/v1/health/ready'];
               res.setHeader('x-request-id', id);
               return id;
             },
-            // 민감정보 차단: Authorization/Cookie 헤더는 통째로 제거.
+            // 민감정보 차단: Authorization/Cookie 헤더 + 쿼리 토큰 키 제거.
+            // (pino req serializer 는 url 외에 파싱된 query 객체도 남기므로, url 문자열 마스킹과
+            //  별개로 query.token 류 키도 제거해야 토큰이 새지 않는다.)
             redact: {
-              paths: ['req.headers.authorization', 'req.headers.cookie'],
+              paths: [
+                'req.headers.authorization',
+                'req.headers.cookie',
+                'req.query.token',
+                'req.query.access_token',
+                'req.query.refresh_token',
+              ],
               remove: true,
             },
             serializers: {
@@ -48,10 +59,7 @@ const HEALTH_PATHS = ['/api/v1/health', '/api/v1/health/ready'];
               req(req: IncomingMessage) {
                 const serialized = stdSerializers.req(req);
                 if (typeof serialized.url === 'string') {
-                  serialized.url = serialized.url.replace(
-                    /([?&]token=)[^&]*/i,
-                    '$1[REDACTED]',
-                  );
+                  serialized.url = maskUrlSecrets(serialized.url);
                 }
                 return serialized;
               },
