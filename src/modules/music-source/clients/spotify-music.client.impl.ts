@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { SpotifyMusicClient } from './spotify-music.client';
 import { MusicTrack } from '../music-track';
 import { MusicSourceUnavailableException } from '../exceptions/music-source.exceptions';
+import { retryTransient } from './retry';
 
 /** Spotify track 객체(필요 필드만) */
 interface SpotifyTrack {
@@ -140,17 +141,25 @@ export class SpotifyMusicClientImpl
     const body = new URLSearchParams({ grant_type: 'client_credentials' });
 
     try {
-      const res = await firstValueFrom(
-        this.http.post<SpotifyTokenResponse>(
-          SpotifyMusicClientImpl.TOKEN_URL,
-          body.toString(),
-          {
-            headers: {
-              Authorization: `Basic ${basic}`,
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-          },
-        ),
+      // 일시적 오류(429/5xx/네트워크/타임아웃)만 백오프 재시도, 그 외는 즉시 throw.
+      const res = await retryTransient(
+        () =>
+          firstValueFrom(
+            this.http.post<SpotifyTokenResponse>(
+              SpotifyMusicClientImpl.TOKEN_URL,
+              body.toString(),
+              {
+                headers: {
+                  Authorization: `Basic ${basic}`,
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                },
+              },
+            ),
+          ),
+        {
+          onRetry: (attempt, delayMs) =>
+            this.logger.warn(`Spotify 토큰 재시도 ${attempt} (${delayMs}ms)`),
+        },
       );
       const accessToken = res.data.access_token;
       const expiresIn = res.data.expires_in ?? 3600;
@@ -181,11 +190,21 @@ export class SpotifyMusicClientImpl
     params: Record<string, string | number>,
   ): Promise<T> {
     try {
-      const res = await firstValueFrom(
-        this.http.get<T>(url, {
-          headers: { Authorization: `Bearer ${token}` },
-          params,
-        }),
+      // 일시적 오류(429/5xx/네트워크/타임아웃)만 백오프 재시도, 그 외는 즉시 throw.
+      const res = await retryTransient(
+        () =>
+          firstValueFrom(
+            this.http.get<T>(url, {
+              headers: { Authorization: `Bearer ${token}` },
+              params,
+            }),
+          ),
+        {
+          onRetry: (attempt, delayMs) =>
+            this.logger.warn(
+              `Spotify API 재시도 ${attempt} (${delayMs}ms): ${url}`,
+            ),
+        },
       );
       return res.data;
     } catch (error) {

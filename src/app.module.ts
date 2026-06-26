@@ -3,6 +3,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AppConfigModule } from './config/app-config.module';
+import { LoggingModule } from './common/logging/logging.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
 import { HealthModule } from './modules/health/health.module';
@@ -19,6 +20,7 @@ import { StorageModule } from './infrastructure/storage/storage.module';
 @Module({
   imports: [
     AppConfigModule,
+    LoggingModule,
     ScheduleModule.forRoot(),
     // 레이트 리밋(검색 등 외부 음원 호출 보호). 한도는 env 로 조정(기본 30회/60s).
     ThrottlerModule.forRootAsync({
