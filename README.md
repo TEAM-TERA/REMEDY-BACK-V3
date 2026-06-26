@@ -29,6 +29,8 @@
 
 코드 컨벤션(모듈 구조 · DI · 예외 · DTO · HTTP 상태코드 · 커밋 규칙)은 [docs/CONVENTIONS.md](docs/CONVENTIONS.md)를 따른다.
 
+배포 직전 실환경 점검은 [docs/RELEASE_READINESS.md](docs/RELEASE_READINESS.md)의 체크리스트를 사용한다.
+
 ## Project setup
 
 ```bash
